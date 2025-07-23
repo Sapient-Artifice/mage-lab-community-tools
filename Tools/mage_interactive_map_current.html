@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interactive Routing Map v2</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body, #map { width:100%; height:100%; margin:0; padding:0; }
+    #controls { position:absolute; top:10px; right:10px; z-index:1000;
+      background:#fff; padding:8px; border-radius:4px; box-shadow:0 0 6px rgba(0,0,0,0.3);
+    }
+    #controls input { width:140px; margin-right:4px; }
+    #controls button { margin-left:4px; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <input id="start" placeholder="Start address" />
+    <input id="end" placeholder="End address" />
+    <button id="route">Get route</button>
+  </div>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const initCenter = [37.8044, -122.2711], initZoom = 13;
+    const map = L.map('map').setView(initCenter, initZoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    let routeLayer, startMarker, endMarker;
+
+    function geocode(q) {
+      return fetch('https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q))
+        .then(r => r.json());
+    }
+
+    function fetchRoute(a,b) {
+      const url = `https://router.project-osrm.org/route/v1/driving/`
+        + `${a.lng},${a.lat};${b.lng},${b.lat}`
+        + `?overview=full&geometries=geojson`;
+      return fetch(url).then(r => r.json());
+    }
+
+    function clearAll() {
+      if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+      if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
+      if (endMarker)   { map.removeLayer(endMarker);   endMarker = null;   }
+    }
+
+    function formatDuration(totalMinutes) {
+      const days = Math.floor(totalMinutes / 1440);
+      let rem = totalMinutes % 1440;
+      const hrs = Math.floor(rem / 60);
+      const mins = rem % 60;
+      const parts = [];
+      if (days) parts.push(days + ' d');
+      if (hrs)  parts.push(hrs + ' h');
+      if (mins || parts.length===0) parts.push(mins + ' m');
+      return parts.join(' ');
+    }
+
+    function centerLocation(q, type) {
+      geocode(q).then(res => {
+        if (!res.length) return alert('Location not found');
+        clearAll();
+        const ll = L.latLng(res[0].lat, res[0].lon);
+        map.setView(ll, initZoom);
+        const label = type === 'start' ? 'Start' : 'End';
+        const marker = L.marker(ll)
+          .addTo(map)
+          .bindPopup(`<strong>${label}</strong><br>Lat: ${ll.lat.toFixed(5)}<br>Lng: ${ll.lng.toFixed(5)}`)
+          .openPopup();
+        if (type === 'start') startMarker = marker;
+        else endMarker = marker;
+      }).catch(console.error);
+    }
+
+    function doRoute() {
+      const s = document.getElementById('start').value.trim();
+      const t = document.getElementById('end').value.trim();
+      if (!s && !t) { clearAll(); return map.setView(initCenter, initZoom); }
+      if (s && !t) { centerLocation(s, 'start'); return; }
+      if (!s && t) { centerLocation(t, 'end'); return; }
+
+      clearAll();
+      Promise.all([geocode(s), geocode(t)])
+        .then(([ra, rb]) => {
+          if (!ra.length) return alert('Start not found');
+          if (!rb.length) return alert('End not found');
+          const A = L.latLng(ra[0].lat, ra[0].lon);
+          const B = L.latLng(rb[0].lat, rb[0].lon);
+          startMarker = L.marker(A).addTo(map).bindPopup('Start');
+          endMarker   = L.marker(B).addTo(map).bindPopup('End');
+          return fetchRoute(A, B);
+        })
+        .then(data => {
+          if (!data || !data.routes?.length) return alert('Route not found');
+          const route = data.routes[0];
+          routeLayer = L.geoJSON(route.geometry, {
+            style: { color: 'blue', weight: 5, opacity: 0.7 }
+          }).addTo(map);
+          map.fitBounds(routeLayer.getBounds(), { padding: [20, 20] });
+
+          const distKm = route.distance / 1000;
+          const distMi = distKm / 1.609;
+          const durMin = Math.ceil(route.duration / 60);
+          const content =
+            `<strong>Route Info</strong><br>` +
+            `Distance: ${distKm.toFixed(1)} km (${distMi.toFixed(1)} mi)<br>` +
+            `Duration: ${formatDuration(durMin)}`;
+
+          startMarker.getPopup().setContent(content);
+          endMarker.getPopup().setContent(content);
+        })
+        .catch(err => { console.error(err); alert('Routing error'); });
+    }
+
+    document.getElementById('route').addEventListener('click', doRoute);
+    document.getElementById('start').addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const s = document.getElementById('start').value.trim();
+        const t = document.getElementById('end').value.trim();
+        if (s && !t) centerLocation(s, 'start');
+        else doRoute();
+      }
+    });
+    document.getElementById('end').addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const s = document.getElementById('start').value.trim();
+        const t = document.getElementById('end').value.trim();
+        if (t && !s) centerLocation(t, 'end');
+        else doRoute();
+      }
+    });
+  </script>
+<script>(function(){document.getElementById("start").value=decodeURIComponent("Oakland,%20California");document.getElementById("end").value=decodeURIComponent("Los%20Angeles,%20California");doRoute();})();</script></body>
+</html>
