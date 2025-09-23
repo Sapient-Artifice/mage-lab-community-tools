@@ -40,4 +40,8 @@ If it does not, look for error messages in ~/.config/magelab/magelog
 - Returns concise, Markdown-formatted results with titles, snippets, and URLs.
 
 
+
+#### License
+- This tool inherits the MIT License from the mage lab Community Tools repository.
+
 Enjoy!
