@@ -1,6 +1,6 @@
-# Mage Maps (Interactive Routing Map)
+# mage lab Maps (Interactive Routing Map)
 
-Interactive routing map for Mage Lab. Provides a Leaflet-based map viewer and routing tool that opens directly in your web browser (embedded in Mage Lab).
+Interactive routing map for mage lab. Provides a Leaflet-based map viewer and routing tool that opens directly in your web browser (embedded in mage lab).
 
 ## Files
 
@@ -10,7 +10,7 @@ Interactive routing map for Mage Lab. Provides a Leaflet-based map viewer and ro
 
 ## Installation
 
-Copy all three files into your `~/Mage/Tools` directory. Make sure it is toggled on in the **Community** section of Mage Lab.
+Copy all three files into your `~/Mage/Tools` directory. Make sure it is toggled on in the **Community** section of mage lab.
 
 ## Usage
 
@@ -27,4 +27,4 @@ open_mage_maps(start="San Francisco, CA")
 
 ## License
 
-This tool inherits the MIT License from the Mage Lab Community Tools repository.
+This tool inherits the MIT License from the mage lab Community Tools repository.
