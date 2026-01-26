@@ -399,11 +399,11 @@
           const toggles = document.createElement("div");
           toggles.className = "controls";
           toggles.innerHTML = `
-            <label><input type="checkbox" data-field="surface" ${rule.surface ? "checked" : ""} /> Surface</label>
-            <label><input type="checkbox" data-field="notify_assistant" ${rule.notify_assistant ? "checked" : ""} /> Notify</label>
-            <label><input type="checkbox" data-field="notify_include_message" ${rule.notify_include_message ? "checked" : ""} /> Notify + message</label>
-            <label><input type="checkbox" data-field="enabled" ${rule.enabled ? "checked" : ""} /> Enabled</label>
-            <button class="link" data-action="delete">Delete</button>
+            <label><input type="checkbox" data-field="surface" ${rule.surface ? "checked" : ""} /> show</label>
+            <label><input type="checkbox" data-field="notify_assistant" ${rule.notify_assistant ? "checked" : ""} /> Notify mage</label>
+            <label><input type="checkbox" data-field="notify_include_message" ${rule.notify_include_message ? "checked" : ""} /> include message</label>
+            <label><input type="checkbox" data-field="enabled" ${rule.enabled ? "checked" : ""} /> enabled</label>
+            <button class="link" data-action="delete">delete</button>
           `;
           toggles.addEventListener("change", (event) => {
             const field = event.target.getAttribute("data-field");

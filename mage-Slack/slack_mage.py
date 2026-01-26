@@ -247,8 +247,8 @@ def _notify_assistant(rule: Dict[str, Any], event_info: Dict[str, Any]) -> None:
             f"user_id={event_info.get('user_id')}, "
             f"channel_id={event_info.get('channel_id')}, "
             f"timestamp={event_info.get('timestamp')}. "
-            "Please do not read the message content. "
-            "If needed, call notify_me."
+            "message content was not provided, but visibility was granted." 
+            "this message is being received from an external system (slack)"
         )
     try:
         requests.post(ASK_ASSISTANT_URL, json={"message": message}, timeout=5)

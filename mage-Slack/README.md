@@ -108,11 +108,39 @@ SLACK_MAGE_API_TOKEN=your-local-dashboard-token
 - Stop the listener:
   - `slack_mage_stop_listener()`
 
+## Dashboard Guide
+### Making Rules
+1) Open the dashboard and keep the listener running.
+2) Use the user/channel lookup buttons to fill IDs (recommended), or paste Slack IDs directly:
+   - User IDs look like `U123...`
+   - Channel IDs look like `C123...`
+3) Leave User ID and/or Channel ID blank to match any user/channel.
+4) Click **Save rule** to persist it.
+
+### Event Types
+- Current event type is **message_posted** (Slack message events only).
+- The event type field is read-only in the dashboard.
+
+### Rule Toggles
+- **Surface**: If on, matched events are recorded in dashboard state and shown in Recent Events and per-rule counts.
+- **Notify**: If on, the assistant receives a notification when the rule matches (subject to throttling).
+- **Notify + message**: If on, the notification includes the message text. If off, only metadata is sent.
+- **Enabled**: If off, the rule is ignored entirely.
+
+### Visibility
+- Dashboard shows recent events (metadata and message text if stored) and per-rule counts.
+- The event log only includes events for rules with **Surface** enabled.
+- Message text is stored locally in the dashboard state file when surfaced.
+
+### Mage Integration 
+- Assistant notifications are sent via `ask_assistant` and are throttled per rule using the dashboard’s **Throttle seconds** setting.
+- If **Notify + message** is enabled, the full message text is sent to the assistant.
+- If you want the assistant to know a rule matched without seeing content, keep **Notify + message** off.
+
 ## Notes
 - The dashboard runs on `127.0.0.1` with an auto-selected port. It avoids `127.0.0.1:11115`.
 - Surfaced events store metadata plus message text in the local state file for dashboard display.
 - Rule toggle "Notify + message" includes the message text in assistant notifications.
-- If `slack_sdk` is missing, install it in the mage lab Python environment.
 
 ## License
 This tool inherits the MIT License from the mage lab Community Tools repository.
