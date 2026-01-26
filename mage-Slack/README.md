@@ -110,7 +110,8 @@ SLACK_MAGE_API_TOKEN=your-local-dashboard-token
 
 ## Notes
 - The dashboard runs on `127.0.0.1` with an auto-selected port. It avoids `127.0.0.1:11115`.
-- Events store metadata only (user ID, channel ID, timestamp). No message content is saved or sent.
+- Surfaced events store metadata plus message text in the local state file for dashboard display.
+- Rule toggle "Notify + message" includes the message text in assistant notifications.
 - If `slack_sdk` is missing, install it in the mage lab Python environment.
 
 ## License

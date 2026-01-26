@@ -202,6 +202,17 @@
         color: var(--muted);
       }
 
+      .event-meta {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .event-message {
+        margin-top: 6px;
+        color: var(--ink);
+        white-space: pre-wrap;
+      }
+
       .lookup-results {
         display: grid;
         gap: 6px;
@@ -286,6 +297,7 @@
             <div class="checkboxes">
               <label><input id="rule-surface" type="checkbox" checked /> Surface on dashboard</label>
               <label><input id="rule-notify" type="checkbox" checked /> Notify assistant</label>
+              <label><input id="rule-notify-message" type="checkbox" /> Include message in notification</label>
               <label><input id="rule-enabled" type="checkbox" checked /> Enabled</label>
             </div>
             <button type="submit">Save rule</button>
@@ -389,6 +401,7 @@
           toggles.innerHTML = `
             <label><input type="checkbox" data-field="surface" ${rule.surface ? "checked" : ""} /> Surface</label>
             <label><input type="checkbox" data-field="notify_assistant" ${rule.notify_assistant ? "checked" : ""} /> Notify</label>
+            <label><input type="checkbox" data-field="notify_include_message" ${rule.notify_include_message ? "checked" : ""} /> Notify + message</label>
             <label><input type="checkbox" data-field="enabled" ${rule.enabled ? "checked" : ""} /> Enabled</label>
             <button class="link" data-action="delete">Delete</button>
           `;
@@ -422,7 +435,15 @@
           .forEach((event) => {
             const row = document.createElement("div");
             row.className = "event";
-            row.textContent = `Rule ${event.rule_id} | user ${event.user_id} | channel ${event.channel_id} | ${event.timestamp}`;
+            const meta = document.createElement("div");
+            meta.className = "event-meta";
+            const ruleLabel = event.rule_name || event.rule_id;
+            meta.textContent = `Rule ${ruleLabel} | user ${event.user_id} | channel ${event.channel_id} | ${event.timestamp}`;
+            row.appendChild(meta);
+            const message = document.createElement("div");
+            message.className = "event-message";
+            message.textContent = event.text || "(no message text)";
+            row.appendChild(message);
             container.appendChild(row);
           });
       }
@@ -479,6 +500,7 @@
           channel_id: document.getElementById("channel-id").value.trim(),
           surface: document.getElementById("rule-surface").checked,
           notify_assistant: document.getElementById("rule-notify").checked,
+          notify_include_message: document.getElementById("rule-notify-message").checked,
           enabled: document.getElementById("rule-enabled").checked,
         };
         if (!configState.config) {

@@ -227,16 +227,29 @@ def _lookup_channels(query: str) -> List[Dict[str, Any]]:
 
 
 def _notify_assistant(rule: Dict[str, Any], event_info: Dict[str, Any]) -> None:
-    message = (
-        "Slack event notification (no message content): "
-        f"rule='{rule.get('name')}', "
-        f"event_type={event_info.get('event_type')}, "
-        f"user_id={event_info.get('user_id')}, "
-        f"channel_id={event_info.get('channel_id')}, "
-        f"timestamp={event_info.get('timestamp')}. "
-        "Please do not read the message content. "
-        "If needed, call notify_me."
-    )
+    include_message = bool(rule.get("notify_include_message"))
+    if include_message and event_info.get("text"):
+        message = (
+            "Slack event notification (message content included): "
+            f"rule='{rule.get('name')}', "
+            f"event_type={event_info.get('event_type')}, "
+            f"user_id={event_info.get('user_id')}, "
+            f"channel_id={event_info.get('channel_id')}, "
+            f"timestamp={event_info.get('timestamp')}, "
+            f"message={event_info.get('text')!r}. "
+            "If needed, call notify_me."
+        )
+    else:
+        message = (
+            "Slack event notification (no message content): "
+            f"rule='{rule.get('name')}', "
+            f"event_type={event_info.get('event_type')}, "
+            f"user_id={event_info.get('user_id')}, "
+            f"channel_id={event_info.get('channel_id')}, "
+            f"timestamp={event_info.get('timestamp')}. "
+            "Please do not read the message content. "
+            "If needed, call notify_me."
+        )
     try:
         requests.post(ASK_ASSISTANT_URL, json={"message": message}, timeout=5)
     except Exception as exc:
@@ -247,6 +260,9 @@ def _handle_message_event(event: Dict[str, Any]) -> None:
     user_id = event.get("user")
     channel_id = event.get("channel")
     timestamp = event.get("ts")
+    message_text = event.get("text") or ""
+    if len(message_text) > 2000:
+        message_text = message_text[:2000] + "..."
     if not user_id or not channel_id:
         return
 
@@ -283,10 +299,12 @@ def _handle_message_event(event: Dict[str, Any]) -> None:
                 continue
             event_info = {
                 "rule_id": rule_id,
+                "rule_name": rule.get("name"),
                 "event_type": "message_posted",
                 "channel_id": channel_id,
                 "user_id": user_id,
-                "timestamp": timestamp
+                "timestamp": timestamp,
+                "text": message_text
             }
             if rule.get("surface", True):
                 event_counts[rule_id] = event_counts.get(rule_id, 0) + 1
