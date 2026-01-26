@@ -122,25 +122,31 @@ SLACK_MAGE_API_TOKEN=your-local-dashboard-token
 - The event type field is read-only in the dashboard.
 
 ### Rule Toggles
-- **Surface**: If on, matched events are recorded in dashboard state and shown in Recent Events and per-rule counts.
+- **Show**: If on, matched events are recorded in dashboard state and shown in Recent Events and per-rule counts.
 - **Notify**: If on, the assistant receives a notification when the rule matches (subject to throttling).
-- **Notify + message**: If on, the notification includes the message text. If off, only metadata is sent.
+- **include message**: If on, the notification includes the message text. If off, only metadata is sent.
 - **Enabled**: If off, the rule is ignored entirely.
 
 ### Visibility
 - Dashboard shows recent events (metadata and message text if stored) and per-rule counts.
-- The event log only includes events for rules with **Surface** enabled.
+- The event log only includes events for rules with **Show** enabled.
 - Message text is stored locally in the dashboard state file when surfaced.
 
 ### Mage Integration 
 - Assistant notifications are sent via `ask_assistant` and are throttled per rule using the dashboard’s **Throttle seconds** setting.
-- If **Notify + message** is enabled, the full message text is sent to the assistant.
-- If you want the assistant to know a rule matched without seeing content, keep **Notify + message** off.
+- If **include message** is enabled, the full message text is sent to the assistant.
+- If you want the assistant to know a rule matched without seeing content, keep **include message** off.
 
 ## Notes
 - The dashboard runs on `127.0.0.1` with an auto-selected port. It avoids `127.0.0.1:11115`.
 - Surfaced events store metadata plus message text in the local state file for dashboard display.
 - Rule toggle "Notify + message" includes the message text in assistant notifications.
+
+TODO:
+- Integrate html page into mage tabs
+- clean up dashboard to make more user friendly
+- add responses and targeted assistant responses on behalf of user
+
 
 ## License
 This tool inherits the MIT License from the mage lab Community Tools repository.
