@@ -251,12 +251,12 @@ def _format_article_summary(article: Dict[str, Any]) -> str:
 
 
 @function_schema(
-    name="wme_search_articles",
+    name="wikipedia_search_articles",
     description="Lookup articles by name and return a compact list of matches.",
     required_params=["name"],
     optional_params=["limit", "fields", "filters", "language", "project"],
 )
-def wme_search_articles(
+def wikipedia_search_articles(
     name: str,
     limit: int = 5,
     fields: Optional[Union[str, Iterable[str]]] = None,
@@ -265,7 +265,7 @@ def wme_search_articles(
     project: Optional[str] = None,
 ) -> str:
     """
-    Lookup articles by name. This uses the on-demand articles endpoint.
+    Lookup articles directly on wikipedia by name. This uses the enterprise on-demand articles endpoint.
     """
     try:
         limit_val = _coerce_int(limit, default=5) or 5
@@ -283,12 +283,12 @@ def wme_search_articles(
 
 
 @function_schema(
-    name="wme_get_article",
-    description="Retrieve a single article body and metadata.",
+    name="wikipedia_get_article",
+    description="Retrieve a single wiki article body and metadata.",
     required_params=["name"],
     optional_params=["fields", "filters", "language", "project", "max_chars"],
 )
-def wme_get_article(
+def wikipedia_get_article(
     name: str,
     fields: Optional[Union[str, Iterable[str]]] = None,
     filters: Optional[Union[str, Dict[str, Any], Iterable[Union[str, Dict[str, Any]]]]] = None,
