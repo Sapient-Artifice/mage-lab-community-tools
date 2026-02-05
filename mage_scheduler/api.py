@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 import os
 import shlex
+import time
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
@@ -16,7 +17,16 @@ from sqlalchemy.orm import Session
 
 from db import SessionLocal, init_db
 from models import Action, Settings, TaskRequest
-from schemas import ActionCreate, ActionRead, ActionUpdate, TaskCreate, TaskRead, TaskIntentEnvelope, TaskIntentResponse
+from schemas import (
+    ActionCreate,
+    ActionRead,
+    ActionUpdate,
+    TaskCreate,
+    TaskRead,
+    TaskIntentEnvelope,
+    TaskIntentResponse,
+    TaskRunNow,
+)
 from tasks.task_manager import TaskManager
 from tasks.celery_app import app as celery_app
 from nl_parser import parse_request
@@ -25,6 +35,7 @@ app = FastAPI(title="Mage Scheduler")
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters["local_time"] = lambda dt: _to_local_time(dt)
+START_TIME = time.time()
 
 
 @app.on_event("startup")
@@ -175,9 +186,15 @@ def _validate_action_payload(
 def dashboard(request: Request, db: Session = Depends(get_db)):
     tasks = db.execute(select(TaskRequest).order_by(TaskRequest.created_at.desc())).scalars().all()
     actions = db.execute(select(Action).order_by(Action.name.asc())).scalars().all()
+    recent_results = db.execute(
+        select(TaskRequest)
+        .where(TaskRequest.status.in_(["success", "failed"]))
+        .order_by(TaskRequest.created_at.desc())
+        .limit(5)
+    ).scalars().all()
     return templates.TemplateResponse(
         "tasks.html",
-        {"request": request, "tasks": tasks, "actions": actions},
+        {"request": request, "tasks": tasks, "actions": actions, "recent_results": recent_results},
     )
 
 
@@ -287,6 +304,11 @@ def get_task(task_id: int, db: Session = Depends(get_db)):
     return task
 
 
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok", "uptime_seconds": int(time.time() - START_TIME)}
+
+
 @app.post("/api/tasks", response_model=TaskRead)
 def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
     settings = _get_settings(db)
@@ -296,6 +318,30 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
     task_id = manager.schedule_command(
         payload.command,
         payload.run_at,
+        cwd=payload.cwd,
+        env=payload.env,
+    )
+    task = db.get(TaskRequest, task_id)
+    if task is None:
+        raise HTTPException(status_code=500, detail="Failed to create task")
+    if payload.description:
+        task.description = payload.description
+    task.cwd = payload.cwd
+    task.env_json = json.dumps(payload.env) if payload.env else None
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+@app.post("/api/tasks/run_now", response_model=TaskRead)
+def run_task_now(payload: TaskRunNow, db: Session = Depends(get_db)):
+    settings = _get_settings(db)
+    _validate_command(payload.command, settings.allowed_command_dirs)
+    _validate_cwd(payload.cwd, settings.allowed_cwd_dirs)
+    manager = TaskManager()
+    task_id = manager.schedule_command(
+        payload.command,
+        datetime.now(),
         cwd=payload.cwd,
         env=payload.env,
     )

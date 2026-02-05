@@ -32,6 +32,7 @@ If you use a dedicated venv, set `MAGE_SCHEDULER_PYTHON` to that venv's Python.
 - `mage_scheduler_open_settings()`
 - `mage_scheduler_preview_intent(intent_json)`
 - `mage_scheduler_schedule_intent(intent_json)`
+- `mage_scheduler_run_now(task_json)`
 - `mage_scheduler_list_tasks(limit)`
 - `mage_scheduler_list_actions()`
 - `mage_scheduler_create_action(action_json)`
@@ -41,3 +42,4 @@ If you use a dedicated venv, set `MAGE_SCHEDULER_PYTHON` to that venv's Python.
 ## Notes
 - Logs are written to `~/.mage_scheduler/api.log` and `~/.mage_scheduler/worker.log` inside your workspace.
 - The tool communicates with the scheduler via HTTP; the scheduler must be running for API calls to succeed.
+- The tool uses the scheduler `/health` endpoint to confirm readiness.

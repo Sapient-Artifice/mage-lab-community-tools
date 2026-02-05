@@ -53,6 +53,33 @@
             <button type="submit">Schedule Task</button>
         </fieldset>
     </form>
+    <h2>Recent Results</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Description</th>
+                <th>Status</th>
+                <th>Result</th>
+                <th>Error</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for task in recent_results %}
+            <tr>
+                <td><a href="/tasks/{{ task.id }}">{{ task.id }}</a></td>
+                <td>{{ task.description }}</td>
+                <td class="status">{{ task.status }}</td>
+                <td>{{ (task.result or "")[:120] }}</td>
+                <td>{{ (task.error or "")[:120] }}</td>
+                <td>{{ task.created_at | local_time }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="6">No completed tasks yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
     <table>
         <thead>
             <tr>

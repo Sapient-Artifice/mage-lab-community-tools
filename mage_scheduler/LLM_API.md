@@ -15,6 +15,9 @@ This document defines the LLM-facing contract for creating tasks.
 ### Schedule intent
 `POST /api/tasks/intent`
 
+### Run now
+`POST /api/tasks/run_now`
+
 ### Create action
 `POST /api/actions`
 

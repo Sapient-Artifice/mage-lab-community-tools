@@ -12,6 +12,13 @@ class TaskCreate(BaseModel):
     env: dict[str, str] | None = None
 
 
+class TaskRunNow(BaseModel):
+    command: str
+    description: str | None = None
+    cwd: str | None = None
+    env: dict[str, str] | None = None
+
+
 class ActionCreate(BaseModel):
     name: str
     description: str | None = None

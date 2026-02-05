@@ -53,7 +53,7 @@ def _pid_alive(pid: Optional[int]) -> bool:
 
 def _service_ready(url: str) -> bool:
     try:
-        resp = requests.get(f"{url}/api/tasks", timeout=1.5)
+        resp = requests.get(f"{url}/health", timeout=1.5)
         return resp.ok
     except requests.RequestException:
         return False
@@ -241,6 +241,18 @@ def mage_scheduler_preview_intent(intent_json: str) -> str:
 def mage_scheduler_schedule_intent(intent_json: str) -> str:
     payload = json.loads(intent_json)
     result = _post_json("/api/tasks/intent", payload)
+    return json.dumps(result, indent=2)
+
+
+@function_schema(
+    name="mage_scheduler_run_now",
+    description="Run a command immediately via the scheduler",
+    required_params=["task_json"],
+    optional_params=[],
+)
+def mage_scheduler_run_now(task_json: str) -> str:
+    payload = json.loads(task_json)
+    result = _post_json("/api/tasks/run_now", payload)
     return json.dumps(result, indent=2)
 
 

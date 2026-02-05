@@ -31,6 +31,7 @@ uv run celery -A celery_app worker --beat --loglevel=info
 
 ## Dashboard
 Open `http://127.0.0.1:8000/` to view tasks and create new ones.
+The dashboard now includes a Recent Results section for quick verification.
 
 ## Actions
 Actions are named, vetted commands. You can manage them at `/actions` and set a default working directory plus allowed environment keys.
@@ -84,6 +85,21 @@ curl -X POST http://127.0.0.1:8000/api/tasks/intent/preview \
       "source":"mage-lab-llm"
     }
   }'
+```
+
+### Run now (API)
+```bash
+curl -X POST http://127.0.0.1:8000/api/tasks/run_now \
+  -H "Content-Type: application/json" \
+  -d '{
+    "command": "/usr/bin/true",
+    "description": "Quick health check"
+  }'
+```
+
+### Health check
+```bash
+curl http://127.0.0.1:8000/health
 ```
 
 ### Create action (API)
