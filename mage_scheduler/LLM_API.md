@@ -18,6 +18,9 @@ This document defines the LLM-facing contract for creating tasks.
 ### Run now
 `POST /api/tasks/run_now`
 
+### Validation rules
+`GET /api/validation`
+
 ### Create action
 `POST /api/actions`
 
@@ -178,6 +181,9 @@ This document defines the LLM-facing contract for creating tasks.
   "detail": ["cwd_dir_not_allowed"]
 }
 ```
+
+### Blocked tasks
+When a task is blocked by validation, the API returns a task with `status: "blocked"` and `error` set to the failure reason.
 
 ```json
 {

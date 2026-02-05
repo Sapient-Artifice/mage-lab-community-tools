@@ -102,6 +102,18 @@ curl -X POST http://127.0.0.1:8000/api/tasks/run_now \
 curl http://127.0.0.1:8000/health
 ```
 
+### Validation rules
+```bash
+curl http://127.0.0.1:8000/api/validation
+```
+
+## Validation behavior
+- Commands must be absolute, exist, and be executable.
+- `cwd` must be absolute and exist when provided.
+- Commands and `cwd` must fall under allowed directory settings.
+- Env vars are only allowed for actions and must be whitelisted per action.
+- Blocked requests are stored with `status="blocked"` and `error` set to the failure reason.
+
 ### Create action (API)
 ```bash
 curl -X POST http://127.0.0.1:8000/api/actions \

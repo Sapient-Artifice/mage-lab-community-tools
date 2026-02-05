@@ -53,6 +53,31 @@
             <button type="submit">Schedule Task</button>
         </fieldset>
     </form>
+    <h2>Blocked Tasks</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Description</th>
+                <th>Error</th>
+                <th>Command</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for task in blocked_tasks %}
+            <tr>
+                <td><a href="/tasks/{{ task.id }}">{{ task.id }}</a></td>
+                <td>{{ task.description }}</td>
+                <td>{{ task.error }}</td>
+                <td><code>{{ task.command }}</code></td>
+                <td>{{ task.created_at | local_time }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="5">No blocked tasks.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
     <h2>Recent Results</h2>
     <table>
         <thead>

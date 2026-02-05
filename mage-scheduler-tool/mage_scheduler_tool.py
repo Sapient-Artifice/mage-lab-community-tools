@@ -296,6 +296,17 @@ def mage_scheduler_list_actions() -> str:
 
 
 @function_schema(
+    name="mage_scheduler_get_validation",
+    description="Get scheduler validation rules and allowed directories",
+    required_params=[],
+    optional_params=[],
+)
+def mage_scheduler_get_validation() -> str:
+    data = _get_json("/api/validation")
+    return json.dumps(data, indent=2)
+
+
+@function_schema(
     name="mage_scheduler_create_action",
     description="Create a scheduler action",
     required_params=["action_json"],

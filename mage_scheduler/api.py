@@ -110,7 +110,7 @@ def _validate_command(command: str, allowed_dirs: list[str] | None = None) -> No
         raise HTTPException(status_code=400, detail="command_not_executable")
     if allowed_dirs:
         if not _is_path_allowed(executable, allowed_dirs):
-            raise HTTPException(status_code=400, detail="command_dir_not_allowed")
+        raise HTTPException(status_code=400, detail="command_dir_not_allowed")
 
 
 def _get_executable(command: str) -> str:
@@ -132,7 +132,26 @@ def _validate_cwd(cwd: str | None, allowed_dirs: list[str] | None = None) -> Non
         raise HTTPException(status_code=400, detail="cwd_not_found")
     if allowed_dirs:
         if not _is_path_allowed(cwd, allowed_dirs):
-            raise HTTPException(status_code=400, detail="cwd_dir_not_allowed")
+        raise HTTPException(status_code=400, detail="cwd_dir_not_allowed")
+
+
+def _create_blocked_task(
+    db: Session,
+    description: str,
+    command: str,
+    error_detail: str,
+) -> TaskRequest:
+    task = TaskRequest(
+        description=description,
+        command=command,
+        run_at=datetime.utcnow(),
+        status="blocked",
+        error=error_detail,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
 
 
 def _is_path_allowed(path: str, allowed_dirs: list[str]) -> bool:
@@ -192,9 +211,21 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         .order_by(TaskRequest.created_at.desc())
         .limit(5)
     ).scalars().all()
+    blocked_tasks = db.execute(
+        select(TaskRequest)
+        .where(TaskRequest.status == "blocked")
+        .order_by(TaskRequest.created_at.desc())
+        .limit(5)
+    ).scalars().all()
     return templates.TemplateResponse(
         "tasks.html",
-        {"request": request, "tasks": tasks, "actions": actions, "recent_results": recent_results},
+        {
+            "request": request,
+            "tasks": tasks,
+            "actions": actions,
+            "recent_results": recent_results,
+            "blocked_tasks": blocked_tasks,
+        },
     )
 
 
@@ -304,6 +335,27 @@ def get_task(task_id: int, db: Session = Depends(get_db)):
     return task
 
 
+@app.get("/api/validation")
+def validation_info(db: Session = Depends(get_db)) -> dict:
+    settings = _get_settings(db)
+    return {
+        "allowed_command_dirs": settings.allowed_command_dirs or [],
+        "allowed_cwd_dirs": settings.allowed_cwd_dirs or [],
+        "rules": [
+            "command_must_be_absolute",
+            "command_must_exist",
+            "command_must_be_executable",
+            "command_dir_must_be_allowed",
+            "cwd_must_be_absolute_if_provided",
+            "cwd_must_exist_if_provided",
+            "cwd_dir_must_be_allowed",
+            "env_requires_action",
+            "env_keys_must_be_allowed",
+            "action_allowed_dirs_must_be_within_settings",
+        ],
+    }
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "uptime_seconds": int(time.time() - START_TIME)}
@@ -312,8 +364,17 @@ def health() -> dict:
 @app.post("/api/tasks", response_model=TaskRead)
 def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
     settings = _get_settings(db)
-    _validate_command(payload.command, settings.allowed_command_dirs)
-    _validate_cwd(payload.cwd, settings.allowed_cwd_dirs)
+    try:
+        _validate_command(payload.command, settings.allowed_command_dirs)
+        _validate_cwd(payload.cwd, settings.allowed_cwd_dirs)
+    except HTTPException as exc:
+        blocked = _create_blocked_task(
+            db,
+            payload.description or payload.command,
+            payload.command,
+            str(exc.detail),
+        )
+        return blocked
     manager = TaskManager()
     task_id = manager.schedule_command(
         payload.command,
@@ -336,8 +397,17 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
 @app.post("/api/tasks/run_now", response_model=TaskRead)
 def run_task_now(payload: TaskRunNow, db: Session = Depends(get_db)):
     settings = _get_settings(db)
-    _validate_command(payload.command, settings.allowed_command_dirs)
-    _validate_cwd(payload.cwd, settings.allowed_cwd_dirs)
+    try:
+        _validate_command(payload.command, settings.allowed_command_dirs)
+        _validate_cwd(payload.cwd, settings.allowed_cwd_dirs)
+    except HTTPException as exc:
+        blocked = _create_blocked_task(
+            db,
+            payload.description or payload.command,
+            payload.command,
+            str(exc.detail),
+        )
+        return blocked
     manager = TaskManager()
     task_id = manager.schedule_command(
         payload.command,
@@ -643,36 +713,63 @@ def delete_action(action_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/tasks/intent", response_model=TaskIntentResponse)
 def create_task_from_intent(payload: TaskIntentEnvelope):
-    errors: list[str] = []
-    if payload.intent_version != "v1":
-        errors.append("unsupported_intent_version")
-
+    session = SessionLocal()
     try:
-        tzinfo = ZoneInfo(payload.task.timezone)
-    except Exception:
-        tzinfo = None
-        errors.append("invalid_timezone")
+        errors: list[str] = []
+        if payload.intent_version != "v1":
+            errors.append("unsupported_intent_version")
 
-    if errors:
-        raise HTTPException(status_code=400, detail=errors)
+        try:
+            tzinfo = ZoneInfo(payload.task.timezone)
+        except Exception:
+            tzinfo = None
+            errors.append("invalid_timezone")
 
-    warnings: list[str] = []
-    resolved_command = payload.task.command or ""
-    action_name = payload.task.action_name
-    action_id = None
-    resolved_cwd = payload.task.cwd
-    env = payload.task.env
-    allowed_command_dirs = None
-    allowed_cwd_dirs = None
-    if action_name:
-        with SessionLocal() as session:
+        if errors:
+            raise HTTPException(status_code=400, detail=errors)
+
+        warnings: list[str] = []
+        resolved_command = payload.task.command or ""
+        action_name = payload.task.action_name
+        action_id = None
+        resolved_cwd = payload.task.cwd
+        env = payload.task.env
+        allowed_command_dirs = None
+        allowed_cwd_dirs = None
+
+        def _blocked(error_detail: str, command_value: str) -> TaskIntentResponse:
+            blocked = _create_blocked_task(
+                session,
+                payload.task.description,
+                command_value,
+                error_detail,
+            )
+            return TaskIntentResponse(
+                status="blocked",
+                task_id=blocked.id,
+                scheduled_at_local=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                scheduled_at_utc=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                command=command_value,
+                description=payload.task.description,
+                action_name=action_name,
+                intent_version=payload.intent_version,
+                source=payload.meta.get("source") if payload.meta else None,
+                cwd=payload.task.cwd,
+                env_keys=list(env.keys()) if env else None,
+                warnings=["blocked"],
+            )
+
+        if action_name:
             action = session.execute(select(Action).where(Action.name == action_name)).scalar_one_or_none()
             if action is None:
-                raise HTTPException(status_code=400, detail=["unknown_action"])
+                return _blocked("unknown_action", resolved_command)
             settings = _get_settings(session)
             allowed_command_dirs = action.allowed_command_dirs or settings.allowed_command_dirs
             allowed_cwd_dirs = action.allowed_cwd_dirs or settings.allowed_cwd_dirs
-            _validate_command(action.command, allowed_command_dirs)
+            try:
+                _validate_command(action.command, allowed_command_dirs)
+            except HTTPException as exc:
+                return _blocked(str(exc.detail), action.command)
             resolved_command = action.command
             action_id = action.id
             if resolved_cwd is None:
@@ -680,41 +777,46 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             allowed_env = action.allowed_env or []
             if env:
                 if not allowed_env:
-                    raise HTTPException(status_code=400, detail=["env_not_allowed"])
+                    return _blocked("env_not_allowed", action.command)
                 invalid_keys = sorted(set(env.keys()) - set(allowed_env))
                 if invalid_keys:
-                    raise HTTPException(status_code=400, detail=["env_key_not_allowed"])
-    else:
-        if not payload.task.command:
-            raise HTTPException(status_code=400, detail=["command_or_action_required"])
-        with SessionLocal() as session:
+                    return _blocked("env_key_not_allowed", action.command)
+        else:
+            if not resolved_command:
+                return _blocked("command_or_action_required", "")
             settings = _get_settings(session)
             allowed_command_dirs = settings.allowed_command_dirs
             allowed_cwd_dirs = settings.allowed_cwd_dirs
-        _validate_command(payload.task.command, allowed_command_dirs)
-        if env:
-            raise HTTPException(status_code=400, detail=["env_requires_action"])
+            try:
+                _validate_command(resolved_command, allowed_command_dirs)
+            except HTTPException as exc:
+                return _blocked(str(exc.detail), resolved_command)
+            if env:
+                return _blocked("env_requires_action", resolved_command)
 
-    run_at_local = payload.task.run_at
-    if run_at_local.tzinfo is None:
-        run_at_local = run_at_local.replace(tzinfo=tzinfo)
-    else:
-        run_at_local = run_at_local.astimezone(tzinfo)
+        run_at_local = payload.task.run_at
+        if run_at_local.tzinfo is None:
+            run_at_local = run_at_local.replace(tzinfo=tzinfo)
+        else:
+            run_at_local = run_at_local.astimezone(tzinfo)
 
-    run_at_local_naive = run_at_local.replace(tzinfo=None)
-    _validate_cwd(resolved_cwd, allowed_cwd_dirs)
-    manager = TaskManager()
-    task_id = manager.schedule_command(
-        resolved_command,
-        run_at_local_naive,
-        cwd=resolved_cwd,
-        env=env,
-    )
+        run_at_local_naive = run_at_local.replace(tzinfo=None)
+        try:
+            _validate_cwd(resolved_cwd, allowed_cwd_dirs)
+        except HTTPException as exc:
+            return _blocked(str(exc.detail), resolved_command)
 
-    source = None
-    if payload.meta and isinstance(payload.meta, dict):
-        source = payload.meta.get("source")
-    with SessionLocal() as session:
+        manager = TaskManager()
+        task_id = manager.schedule_command(
+            resolved_command,
+            run_at_local_naive,
+            cwd=resolved_cwd,
+            env=env,
+        )
+
+        source = None
+        if payload.meta and isinstance(payload.meta, dict):
+            source = payload.meta.get("source")
         task = session.get(TaskRequest, task_id)
         if task is not None:
             task.intent_version = payload.intent_version
@@ -726,20 +828,22 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             task.env_json = json.dumps(env) if env else None
             session.commit()
 
-    return TaskIntentResponse(
-        status="scheduled",
-        task_id=task_id,
-        scheduled_at_local=run_at_local.strftime("%Y-%m-%dT%H:%M:%S"),
-        scheduled_at_utc=run_at_local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        command=resolved_command,
-        description=payload.task.description,
-        action_name=action_name,
-        intent_version=payload.intent_version,
-        source=source,
-        cwd=resolved_cwd,
-        env_keys=list(env.keys()) if env else None,
-        warnings=warnings,
-    )
+        return TaskIntentResponse(
+            status="scheduled",
+            task_id=task_id,
+            scheduled_at_local=run_at_local.strftime("%Y-%m-%dT%H:%M:%S"),
+            scheduled_at_utc=run_at_local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            command=resolved_command,
+            description=payload.task.description,
+            action_name=action_name,
+            intent_version=payload.intent_version,
+            source=source,
+            cwd=resolved_cwd,
+            env_keys=list(env.keys()) if env else None,
+            warnings=warnings,
+        )
+    finally:
+        session.close()
 
 
 @app.post("/api/tasks/intent/preview", response_model=TaskIntentResponse)

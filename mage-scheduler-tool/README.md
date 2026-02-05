@@ -35,6 +35,7 @@ If you use a dedicated venv, set `MAGE_SCHEDULER_PYTHON` to that venv's Python.
 - `mage_scheduler_run_now(task_json)`
 - `mage_scheduler_list_tasks(limit)`
 - `mage_scheduler_list_actions()`
+- `mage_scheduler_get_validation()`
 - `mage_scheduler_create_action(action_json)`
 - `mage_scheduler_update_action(action_id, action_json)`
 - `mage_scheduler_delete_action(action_id)`
