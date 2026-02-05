@@ -110,7 +110,7 @@ def _validate_command(command: str, allowed_dirs: list[str] | None = None) -> No
         raise HTTPException(status_code=400, detail="command_not_executable")
     if allowed_dirs:
         if not _is_path_allowed(executable, allowed_dirs):
-        raise HTTPException(status_code=400, detail="command_dir_not_allowed")
+            raise HTTPException(status_code=400, detail="command_dir_not_allowed")
 
 
 def _get_executable(command: str) -> str:
@@ -132,7 +132,7 @@ def _validate_cwd(cwd: str | None, allowed_dirs: list[str] | None = None) -> Non
         raise HTTPException(status_code=400, detail="cwd_not_found")
     if allowed_dirs:
         if not _is_path_allowed(cwd, allowed_dirs):
-        raise HTTPException(status_code=400, detail="cwd_dir_not_allowed")
+            raise HTTPException(status_code=400, detail="cwd_dir_not_allowed")
 
 
 def _create_blocked_task(
