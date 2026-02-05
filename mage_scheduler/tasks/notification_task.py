@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 from celery import shared_task
 from tasks.celery_app import app
@@ -16,9 +18,25 @@ def run_command_at(task_request_id: int, command: str):
         if task_request is None:
             return {"error": "task_request_not_found"}
         task_request.status = "running"
+        env_json = task_request.env_json
+        cwd = task_request.cwd
         session.commit()
 
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    env = os.environ.copy()
+    if env_json:
+        try:
+            env.update(json.loads(env_json))
+        except json.JSONDecodeError:
+            pass
+
+    result = subprocess.run(
+        command,
+        shell=True,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        env=env,
+    )
 
     with SessionLocal() as session:
         task_request = session.get(TaskRequest, task_request_id)

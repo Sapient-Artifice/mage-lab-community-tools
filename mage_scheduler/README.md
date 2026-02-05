@@ -1,43 +1,107 @@
 # Mage Scheduler
 
-Simple task scheduler built on Celery, including periodic GPU monitoring and ad‐hoc command scheduling.
+Mage Scheduler is a small task scheduling service built on Celery + Redis with a FastAPI dashboard/API. It is designed to accept structured task intents (from LLMs or humans) and provide clear visibility into scheduled jobs.
+
+## What it does
+- Schedules shell commands at a specified time
+- Stores task metadata in SQLite
+- Provides an HTML dashboard for verification
+- Exposes JSON endpoints for LLM-driven task creation
 
 ## Requirements
-
 - Python 3.11+
-- Redis server (default broker/backend at `redis://localhost:6379/0`)
-- Celery>=5.5.3
-- Flower>=2.0.1 (optional web UI)
+- Redis (default broker/backend at `redis://localhost:6379/0`)
 
-Install the Python dependencies:
+## Setup
 ```bash
-# If you use pip and a virtualenv:
-pip install celery[redis] flower
+uv venv
+uv sync
 ```
 
-## Running Celery Worker and Beat
-
-From the project root directory, start the Celery worker with beat:
+## Run
+Start the API:
 ```bash
-celery -A celery_app worker --beat --loglevel=info
+uv run uvicorn api:app --reload --port 8000
 ```
 
-The GPU monitor task (`tasks.gpu_tasks.gpu_monitor`) is preconfigured to run every 60 seconds.
-
-## Scheduling Ad‐Hoc Commands
-
-Use the `TaskManager` in `tasks/task_manager.py` to schedule shell commands at a given local datetime:
-```python
-from tasks.task_manager import TaskManager
-manager = TaskManager()
-task_id = manager.schedule_command("echo 'Hello'", datetime.utcnow())
-```
-
-## FastAPI Dashboard + API
-
-Run the web app:
+Start Celery (worker + beat):
 ```bash
-uvicorn api:app --reload --port 8000
+uv run celery -A celery_app worker --beat --loglevel=info
 ```
 
-The dashboard is at `/`, and the JSON API is under `/api/tasks`.
+## Dashboard
+Open `http://127.0.0.1:8000/` to view tasks and create new ones.
+
+## Actions
+Actions are named, vetted commands. You can manage them at `/actions` and set a default working directory plus allowed environment keys.
+Action commands must be absolute paths to executables.
+
+## Settings
+Global directory allowlists live at `/settings`. Actions can optionally override allowed command/cwd directories.
+
+## API
+
+### Create task (direct)
+```bash
+curl -X POST http://127.0.0.1:8000/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"command":"echo Hello Mage","run_at":"2026-02-05T18:00:00"}'
+```
+
+### Create task (LLM intent)
+```bash
+curl -X POST http://127.0.0.1:8000/api/tasks/intent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "intent_version":"v1",
+    "task":{
+      "description":"Back up home directory",
+      "command":"/usr/local/bin/backup_home.sh",
+      "run_at":"2026-02-05T18:00:00",
+      "timezone":"America/Los_Angeles",
+      "action_name":"backup_home"
+    },
+    "meta":{
+      "source":"mage-lab-llm"
+    }
+  }'
+```
+
+### Preview intent (no scheduling)
+```bash
+curl -X POST http://127.0.0.1:8000/api/tasks/intent/preview \
+  -H "Content-Type: application/json" \
+  -d '{
+    "intent_version":"v1",
+    "task":{
+      "description":"Back up home directory",
+      "command":"/usr/local/bin/backup_home.sh",
+      "run_at":"2026-02-05T18:00:00",
+      "timezone":"America/Los_Angeles",
+      "action_name":"backup_home"
+    },
+    "meta":{
+      "source":"mage-lab-llm"
+    }
+  }'
+```
+
+### Create action (API)
+```bash
+curl -X POST http://127.0.0.1:8000/api/actions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "backup_home",
+    "description": "Back up home directory",
+    "command": "/usr/local/bin/backup_home.sh",
+    "default_cwd": "/usr/local/bin",
+    "allowed_env": ["PROJECT_ID"],
+    "allowed_command_dirs": ["/usr/local/bin"],
+    "allowed_cwd_dirs": ["/usr/local/bin"]
+  }'
+```
+
+## Notes
+- Times in the UI are shown in local system time.
+- SQLite DB file: `mage_scheduler.db`.
+- Local artifacts are ignored via `mage_scheduler/.gitignore`.

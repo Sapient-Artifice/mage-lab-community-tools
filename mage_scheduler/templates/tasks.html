@@ -17,17 +17,34 @@
 </head>
 <body>
     <h1>Mage Scheduler</h1>
-    <p class="muted">Auto-refreshes every 30 seconds. Times are shown in local time.</p>
+    <p class="muted">Auto-refreshes every 30 seconds. Times are shown in local time. <a href="/actions">Manage actions</a> | <a href="/settings">Settings</a></p>
     <form action="/tasks" method="post" style="margin-top: 16px;">
         <fieldset style="border: 1px solid #ddd; padding: 12px; border-radius: 6px;">
             <legend style="padding: 0 6px;">Create Task</legend>
+            <div style="margin-bottom: 8px;">
+                <label for="nl_request">Quick Request</label><br>
+                <input id="nl_request" name="nl_request" type="text" style="width: 100%;" placeholder="backup home at tomorrow 9am">
+                <button type="button" id="preview_button" style="margin-top: 6px;">Preview</button>
+                <span id="preview_status" class="muted" style="margin-left: 8px;"></span>
+                <div id="preview_interpretation" class="muted" style="margin-top: 6px;"></div>
+                <div id="preview_warnings" class="muted" style="margin-top: 4px;"></div>
+            </div>
             <div style="margin-bottom: 8px;">
                 <label for="description">Description</label><br>
                 <input id="description" name="description" type="text" style="width: 100%;" placeholder="Optional description">
             </div>
             <div style="margin-bottom: 8px;">
+                <label for="action_id">Action</label><br>
+                <select id="action_id" name="action_id" style="width: 100%;">
+                    <option value="">-- Custom command --</option>
+                    {% for action in actions %}
+                        <option value="{{ action.id }}">{{ action.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="margin-bottom: 8px;">
                 <label for="command">Command</label><br>
-                <input id="command" name="command" type="text" style="width: 100%;" required placeholder="echo Hello Mage">
+                <input id="command" name="command" type="text" style="width: 100%;" placeholder="echo Hello Mage">
             </div>
             <div style="margin-bottom: 8px;">
                 <label for="run_at">Run At (Local)</label><br>
@@ -42,6 +59,9 @@
                 <th>ID</th>
                 <th>Description</th>
                 <th>Command</th>
+                <th>Action</th>
+                <th>Source</th>
+                <th>Intent</th>
                 <th>Run At (Local)</th>
                 <th>Status</th>
                 <th>Created</th>
@@ -54,6 +74,9 @@
                 <td><a href="/tasks/{{ task.id }}">{{ task.id }}</a></td>
                 <td>{{ task.description }}</td>
                 <td><code>{{ task.command }}</code></td>
+                <td>{{ task.action_name or "-" }}</td>
+                <td>{{ task.source or "-" }}</td>
+                <td>{{ task.intent_version or "-" }}</td>
                 <td>{{ task.run_at | local_time }}</td>
                 <td class="status">{{ task.status }}</td>
                 <td>{{ task.created_at | local_time }}</td>
@@ -64,9 +87,60 @@
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="7">No tasks scheduled yet.</td></tr>
+            <tr><td colspan="10">No tasks scheduled yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>
+    <script>
+        const previewButton = document.getElementById("preview_button");
+        const previewStatus = document.getElementById("preview_status");
+        const previewInterpretation = document.getElementById("preview_interpretation");
+        const previewWarnings = document.getElementById("preview_warnings");
+        const actionSelect = document.getElementById("action_id");
+        const commandInput = document.getElementById("command");
+        actionSelect.addEventListener("change", () => {
+            const hasAction = actionSelect.value !== "";
+            commandInput.disabled = hasAction;
+            if (hasAction) {
+                commandInput.value = "";
+            }
+        });
+        previewButton.addEventListener("click", async () => {
+            const nlInput = document.getElementById("nl_request");
+            const text = nlInput.value.trim();
+            previewStatus.textContent = "";
+            previewInterpretation.textContent = "";
+            previewWarnings.textContent = "";
+            if (!text) {
+                previewStatus.textContent = "Enter a request first.";
+                return;
+            }
+            try {
+                const response = await fetch("/api/parse", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({text}),
+                });
+                if (!response.ok) {
+                    const data = await response.json();
+                    previewStatus.textContent = data.detail || "Parse failed.";
+                    return;
+                }
+                const data = await response.json();
+                document.getElementById("description").value = data.description || "";
+                document.getElementById("command").value = data.command || "";
+                document.getElementById("run_at").value = data.run_at_local || "";
+                previewStatus.textContent = `Parsed (${data.confidence || "unknown"} confidence).`;
+                if (data.interpretation) {
+                    previewInterpretation.textContent = data.interpretation;
+                }
+                if (data.warnings && data.warnings.length > 0) {
+                    previewWarnings.textContent = `Warnings: ${data.warnings.join(", ")}`;
+                }
+            } catch (err) {
+                previewStatus.textContent = "Parse error.";
+            }
+        });
+    </script>
 </body>
 </html>

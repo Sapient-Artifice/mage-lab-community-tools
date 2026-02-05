@@ -1,24 +1,32 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from celery.result import AsyncResult
 from db import SessionLocal, init_db
 from models import TaskRequest
 from tasks.notification_task import run_command_at
 
 class TaskManager:
-    def schedule_command(self, command: str, run_at: datetime):
+    def schedule_command(
+        self,
+        command: str,
+        run_at: datetime,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ):
         """Schedule the command to run at run_at datetime (UTC)."""
         init_db()
         run_at_utc = _ensure_utc_naive(run_at)
 
         with SessionLocal() as session:
-            description = command
             task_request = TaskRequest(
-                description=description,
+                description=command,
                 command=command,
                 run_at=run_at_utc,
                 status="scheduled",
+                cwd=cwd,
+                env_json=json.dumps(env) if env else None,
             )
             session.add(task_request)
             session.commit()

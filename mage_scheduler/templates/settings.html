@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Mage Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { text-align: center; }
+        .muted { color: #777; font-size: 0.9em; }
+        input, textarea { width: 100%; }
+        fieldset { border: 1px solid #ddd; padding: 12px; border-radius: 6px; }
+    </style>
+</head>
+<body>
+    <h1>Settings</h1>
+    <p class="muted"><a href="/">Back to tasks</a> | <a href="/actions">Actions</a></p>
+    {% if error %}
+        <p style="color: #b00020;">Error: {{ error }}</p>
+    {% endif %}
+    <form action="/settings" method="post">
+        <fieldset>
+            <legend>Global Directory Allowlist</legend>
+            <div style="margin-bottom: 8px;">
+                <label for="allowed_command_dirs">Allowed Command Dirs (comma-separated)</label><br>
+                <input id="allowed_command_dirs" name="allowed_command_dirs" type="text" value="{{ form.allowed_command_dirs if form else ((settings.allowed_command_dirs or []) | join(', ')) }}" placeholder="/usr/local/bin,/opt/mage/scripts">
+            </div>
+            <div style="margin-bottom: 8px;">
+                <label for="allowed_cwd_dirs">Allowed CWD Dirs (comma-separated)</label><br>
+                <input id="allowed_cwd_dirs" name="allowed_cwd_dirs" type="text" value="{{ form.allowed_cwd_dirs if form else ((settings.allowed_cwd_dirs or []) | join(', ')) }}" placeholder="/home/bard,/opt/mage">
+            </div>
+            <button type="submit">Save Settings</button>
+        </fieldset>
+    </form>
+</body>
+</html>

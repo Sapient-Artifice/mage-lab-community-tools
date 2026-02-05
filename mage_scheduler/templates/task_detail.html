@@ -22,6 +22,31 @@
     </div>
 
     <div class="box">
+        <strong>Source</strong>
+        <div>{{ task.source or "(none)" }}</div>
+    </div>
+
+    <div class="box">
+        <strong>Intent Version</strong>
+        <div>{{ task.intent_version or "(none)" }}</div>
+    </div>
+
+    <div class="box">
+        <strong>Action</strong>
+        <div>{{ task.action_name or "(none)" }}</div>
+    </div>
+
+    <div class="box">
+        <strong>Working Directory</strong>
+        <div>{{ task.cwd or "(none)" }}</div>
+    </div>
+
+    <div class="box">
+        <strong>Env Keys</strong>
+        <div>{{ (task.env_keys or []) | join(", ") }}</div>
+    </div>
+
+    <div class="box">
         <strong>Command</strong>
         <pre>{{ task.command }}</pre>
     </div>
