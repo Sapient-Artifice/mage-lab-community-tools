@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task {{ task.id }} - Mage Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { margin-bottom: 8px; }
+        .meta { color: #777; font-size: 0.9em; }
+        .box { border: 1px solid #ddd; padding: 12px; border-radius: 6px; margin-top: 12px; }
+        pre { white-space: pre-wrap; word-break: break-word; }
+    </style>
+</head>
+<body>
+    <h1>Task {{ task.id }}</h1>
+    <div class="meta">Created {{ task.created_at | local_time }} | Run at {{ task.run_at | local_time }} (Local)</div>
+
+    <div class="box">
+        <strong>Description</strong>
+        <div>{{ task.description }}</div>
+    </div>
+
+    <div class="box">
+        <strong>Command</strong>
+        <pre>{{ task.command }}</pre>
+    </div>
+
+    <div class="box">
+        <strong>Status</strong>
+        <div>{{ task.status }}</div>
+    </div>
+
+    <div class="box">
+        <strong>Result</strong>
+        <pre>{{ task.result or "(none)" }}</pre>
+    </div>
+
+    <div class="box">
+        <strong>Error</strong>
+        <pre>{{ task.error or "(none)" }}</pre>
+    </div>
+
+    <p><a href="/">Back to tasks</a></p>
+    <form action="/tasks/{{ task.id }}/delete" method="post">
+        <button type="submit" onclick="return confirm('Delete task {{ task.id }}?');">Delete Task</button>
+    </form>
+</body>
+</html>
