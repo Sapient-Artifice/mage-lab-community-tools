@@ -312,37 +312,37 @@ def jira_assign_issue(issue_key: str, assignee: str) -> str:
         return f"An unexpected error occurred: {str(e)}"
 
 
- @function_schema(
- name="get_jira_transitions",
- description="""
- Retrieve all available transition statuses for a specific JIRA issue, including their names and IDs.
- """,
-     required_params=["issue_key"],
-     optional_params=[],
- )
- def get_jira_transitions(issue_key: str) -> str:
-     """
-     Retrieve all available transition statuses for a specific JIRA issue.
+@function_schema(
+    name="get_jira_transitions",
+    description="""
+    Retrieve all available transition statuses for a specific JIRA issue, including their names and IDs.
+    """,
+    required_params=["issue_key"],
+    optional_params=[],
+)
+def get_jira_transitions(issue_key: str) -> str:
+    """
+    Retrieve all available transition statuses for a specific JIRA issue.
 
-     Args:
-         issue_key (str): The key of the issue to retrieve transitions for.
+    Args:
+        issue_key (str): The key of the issue to retrieve transitions for.
 
-     Returns:
-         str: A formatted list of all available transitions for the issue, or an error message.
-     """
-     try:
-         issue = jira.issue(issue_key)
-         transitions = jira.transitions(issue)  # Retrieve available transitions
-         if not transitions:
-             return f"No transitions available for issue {issue_key}."
+    Returns:
+        str: A formatted list of all available transitions for the issue, or an error message.
+    """
+    try:
+        issue = jira.issue(issue_key)
+        transitions = jira.transitions(issue)  # Retrieve available transitions
+        if not transitions:
+            return f"No transitions available for issue {issue_key}."
 
-         result_lines = [f"Available transitions for issue {issue_key}:"]
-         for transition in transitions:
-             transition_id = transition['id']
-             transition_name = transition['name']
-             result_lines.append(f"- ID: {transition_id}, Name: {transition_name}")
-         return "\n".join(result_lines)
-     except JIRAError as e:
-         return f"An error occurred while retrieving transitions for issue {issue_key}: {e.text.strip()}"
-     except Exception as e:
-         return f"An unexpected error occurred: {str(e)}"
+        result_lines = [f"Available transitions for issue {issue_key}:"]
+        for transition in transitions:
+            transition_id = transition['id']
+            transition_name = transition['name']
+            result_lines.append(f"- ID: {transition_id}, Name: {transition_name}")
+        return "\n".join(result_lines)
+    except JIRAError as e:
+        return f"An error occurred while retrieving transitions for issue {issue_key}: {e.text.strip()}"
+    except Exception as e:
+        return f"An unexpected error occurred: {str(e)}"

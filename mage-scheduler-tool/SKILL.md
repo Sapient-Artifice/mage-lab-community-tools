@@ -53,6 +53,7 @@ Use this structure for scheduling:
 
 Rules:
 - Prefer `action_name`; use `command` only when no action exists.
+- `intent_version` accepts `v1`, `1`, or `1.0` and is normalized to `v1`.
 - `command` must be an absolute executable path.
 - `env` is only allowed with `action_name` and must be whitelisted by the action.
 - Commands and `cwd` must fall within allowed directories; check with `mage_scheduler_get_validation()`.
@@ -87,6 +88,7 @@ Rules:
 
 ## Error Handling
 - If a request is blocked, the task will be created with `status: "blocked"` and `error` set to the reason.
+- Intent validation errors return `detail.errors[]` objects with `code`, `message`, and optional `hint`.
 - Use `mage_scheduler_get_validation()` to explain constraints to the user.
 
 ## Leaving Notifications for Future Self

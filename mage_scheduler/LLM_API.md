@@ -98,7 +98,7 @@ This document defines the LLM-facing contract for creating tasks.
 }
 ```
 
-## Error responses
+## Error responses (intent endpoints)
 ```json
 {
   "detail": {
@@ -145,75 +145,48 @@ Other validation failures return the same `code`/`message`/`hint` structure.
 
 ```json
 {
-  "detail": ["command_must_be_absolute"]
-}
-```
-
-```json
-{
-  "detail": ["command_not_found"]
-}
-```
-
-```json
-{
-  "detail": ["command_not_executable"]
-}
-```
-
-```json
-{
-  "detail": ["cwd_must_be_absolute"]
-}
-```
-
-```json
-{
-  "detail": ["cwd_not_found"]
-}
-```
-
-```json
-{
-  "detail": ["command_dir_not_allowed"]
-}
-```
-
-```json
-{
-  "detail": ["cwd_dir_not_allowed"]
+  "detail": {
+    "errors": [
+      {
+        "code": "command_must_be_absolute",
+        "message": "Command must be an absolute path.",
+        "hint": "Use an absolute path like /usr/local/bin/tool."
+      }
+    ]
+  }
 }
 ```
 
 ### Blocked tasks
-When a task is blocked by validation, the API returns a task with `status: "blocked"` and `error` set to the failure reason.
+When a task is blocked by validation, the API returns a task with `status: "blocked"`, `error` set to the failure reason, and an `errors` array with the same `code`/`message`/`hint` structure.
 
+## Error responses (action endpoints)
 ```json
 {
-  "detail": ["action_name_exists"]
+  "detail": "action_name_exists"
 }
 ```
 
 ```json
 {
-  "detail": ["action_command_dir_outside_settings"]
+  "detail": "action_command_dir_outside_settings"
 }
 ```
 
 ```json
 {
-  "detail": ["action_cwd_dir_outside_settings"]
+  "detail": "action_cwd_dir_outside_settings"
 }
 ```
 
 ```json
 {
-  "detail": ["action_command_dir_mismatch"]
+  "detail": "action_command_dir_mismatch"
 }
 ```
 
 ```json
 {
-  "detail": ["action_cwd_dir_mismatch"]
+  "detail": "action_cwd_dir_mismatch"
 }
 ```

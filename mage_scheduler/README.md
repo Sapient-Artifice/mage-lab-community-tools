@@ -72,6 +72,10 @@ curl -X POST http://127.0.0.1:8012/api/tasks/intent \
   }'
 ```
 
+Notes:
+- `intent_version` accepts `v1`, `1`, or `1.0` and is normalized to `v1`.
+- Validation failures return `detail.errors[]` with `code`, `message`, and optional `hint`.
+
 ### Preview intent (no scheduling)
 ```bash
 curl -X POST http://127.0.0.1:8012/api/tasks/intent/preview \
