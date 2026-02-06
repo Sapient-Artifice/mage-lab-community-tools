@@ -57,6 +57,21 @@ Rules:
 - `env` is only allowed with `action_name` and must be whitelisted by the action.
 - Commands and `cwd` must fall within allowed directories; check with `mage_scheduler_get_validation()`.
 
+## Run-Now Schema
+Use this structure for immediate execution:
+```json
+{
+  "command": "/absolute/path/to/script.sh",
+  "description": "Optional summary",
+  "cwd": "/path/to/working/dir",
+  "env": {"KEY": "VALUE"}
+}
+```
+
+Rules:
+- `command` is required and must be an absolute executable path.
+- `env` is optional and should be a string-to-string map.
+
 ## Action Schema
 ```json
 {

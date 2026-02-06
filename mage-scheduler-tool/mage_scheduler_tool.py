@@ -51,11 +51,41 @@ def _pid_alive(pid: Optional[int]) -> bool:
         return False
 
 
+def _resolve_base_url(state: Optional[Dict[str, Any]] = None) -> str:
+    env_url = os.getenv("MAGE_SCHEDULER_URL")
+    if env_url:
+        return env_url
+    env_port = os.getenv("MAGE_SCHEDULER_PORT")
+    if env_port:
+        return f"http://127.0.0.1:{int(env_port)}"
+    if state:
+        if state.get("base_url"):
+            return str(state["base_url"])
+        if state.get("port"):
+            return f"http://127.0.0.1:{int(state['port'])}"
+    return f"http://127.0.0.1:{DEFAULT_PORT}"
+
+
+def _current_base_url() -> str:
+    return _resolve_base_url(_load_state())
+
+
 def _service_ready(url: str) -> bool:
     try:
         resp = requests.get(f"{url}/health", timeout=1.5)
         return resp.ok
     except requests.RequestException:
+        return False
+
+
+def _worker_ready(url: str) -> bool:
+    try:
+        resp = requests.get(f"{url}/health/worker", timeout=1.5)
+        if not resp.ok:
+            return False
+        data = resp.json()
+        return bool(data.get("worker_alive"))
+    except (requests.RequestException, ValueError):
         return False
 
 
@@ -158,17 +188,19 @@ def mage_scheduler_stop() -> str:
 )
 def mage_scheduler_status() -> str:
     state = _load_state()
-    base_url = state.get("base_url", BASE_URL)
+    base_url = _resolve_base_url(state)
     api_pid = state.get("api_pid")
     worker_pid = state.get("worker_pid")
+    api_ready = _service_ready(base_url)
+    worker_ready = _worker_ready(base_url)
 
     status = {
         "base_url": base_url,
         "api_pid": api_pid,
         "worker_pid": worker_pid,
-        "api_alive": _pid_alive(api_pid),
-        "worker_alive": _pid_alive(worker_pid),
-        "ready": _service_ready(base_url),
+        "api_alive": _pid_alive(api_pid) or api_ready,
+        "worker_alive": _pid_alive(worker_pid) or worker_ready,
+        "ready": api_ready,
     }
     return json.dumps(status, indent=2)
 
@@ -180,8 +212,9 @@ def mage_scheduler_status() -> str:
     optional_params=[],
 )
 def mage_scheduler_open_dashboard() -> str:
-    open_url(f"{BASE_URL}/")
-    return f"Opened {BASE_URL}/"
+    base_url = _current_base_url()
+    open_url(f"{base_url}/")
+    return f"Opened {base_url}/"
 
 
 @function_schema(
@@ -191,8 +224,9 @@ def mage_scheduler_open_dashboard() -> str:
     optional_params=[],
 )
 def mage_scheduler_open_actions() -> str:
-    open_url(f"{BASE_URL}/actions")
-    return f"Opened {BASE_URL}/actions"
+    base_url = _current_base_url()
+    open_url(f"{base_url}/actions")
+    return f"Opened {base_url}/actions"
 
 
 @function_schema(
@@ -202,19 +236,22 @@ def mage_scheduler_open_actions() -> str:
     optional_params=[],
 )
 def mage_scheduler_open_settings() -> str:
-    open_url(f"{BASE_URL}/settings")
-    return f"Opened {BASE_URL}/settings"
+    base_url = _current_base_url()
+    open_url(f"{base_url}/settings")
+    return f"Opened {base_url}/settings"
 
 
 def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    resp = requests.post(f"{BASE_URL}{path}", json=payload, timeout=10)
+    base_url = _current_base_url()
+    resp = requests.post(f"{base_url}{path}", json=payload, timeout=10)
     if not resp.ok:
         return {"error": resp.text, "status_code": resp.status_code}
     return resp.json()
 
 
 def _get_json(path: str) -> Dict[str, Any]:
-    resp = requests.get(f"{BASE_URL}{path}", timeout=10)
+    base_url = _current_base_url()
+    resp = requests.get(f"{base_url}{path}", timeout=10)
     if not resp.ok:
         return {"error": resp.text, "status_code": resp.status_code}
     return resp.json()
@@ -246,7 +283,7 @@ def mage_scheduler_schedule_intent(intent_json: str) -> str:
 
 @function_schema(
     name="mage_scheduler_run_now",
-    description="Run a command immediately via the scheduler",
+    description="Run a command immediately via the scheduler. task_json must include a non-empty 'command' field.",
     required_params=["task_json"],
     optional_params=[],
 )

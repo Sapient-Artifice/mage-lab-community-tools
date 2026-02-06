@@ -361,6 +361,16 @@ def health() -> dict:
     return {"status": "ok", "uptime_seconds": int(time.time() - START_TIME)}
 
 
+@app.get("/health/worker")
+def worker_health() -> dict:
+    try:
+        replies = celery_app.control.ping(timeout=1.0) or []
+        alive = bool(replies)
+    except Exception:
+        alive = False
+    return {"worker_alive": alive}
+
+
 @app.post("/api/tasks", response_model=TaskRead)
 def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
     settings = _get_settings(db)

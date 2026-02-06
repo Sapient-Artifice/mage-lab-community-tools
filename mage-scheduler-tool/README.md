@@ -44,3 +44,4 @@ If you use a dedicated venv, set `MAGE_SCHEDULER_PYTHON` to that venv's Python.
 - Logs are written to `~/.mage_scheduler/api.log` and `~/.mage_scheduler/worker.log` inside your workspace.
 - The tool communicates with the scheduler via HTTP; the scheduler must be running for API calls to succeed.
 - The tool uses the scheduler `/health` endpoint to confirm readiness.
+- The `mage_scheduler_run_now` tool requires a JSON payload that includes a `command` field.

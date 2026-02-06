@@ -25,7 +25,7 @@ uv sync
 ## Run
 Start the API:
 ```bash
-uv run uvicorn api:app --reload --port 8000
+uv run uvicorn api:app --reload --port 8012
 ```
 
 Start Celery (worker + beat):
@@ -34,7 +34,7 @@ uv run celery -A celery_app worker --beat --loglevel=info
 ```
 
 ## Dashboard
-Open `http://127.0.0.1:8000/` to view tasks and create new ones.
+Open `http://127.0.0.1:8012/` to view tasks and create new ones.
 The dashboard now includes a Recent Results section for quick verification.
 
 ## Actions
@@ -48,14 +48,14 @@ Global directory allowlists live at `/settings`. Actions can optionally override
 
 ### Create task (direct)
 ```bash
-curl -X POST http://127.0.0.1:8000/api/tasks \
+curl -X POST http://127.0.0.1:8012/api/tasks \
   -H "Content-Type: application/json" \
   -d '{"command":"echo Hello Mage","run_at":"2026-02-05T18:00:00"}'
 ```
 
 ### Create task (LLM intent)
 ```bash
-curl -X POST http://127.0.0.1:8000/api/tasks/intent \
+curl -X POST http://127.0.0.1:8012/api/tasks/intent \
   -H "Content-Type: application/json" \
   -d '{
     "intent_version":"v1",
@@ -74,7 +74,7 @@ curl -X POST http://127.0.0.1:8000/api/tasks/intent \
 
 ### Preview intent (no scheduling)
 ```bash
-curl -X POST http://127.0.0.1:8000/api/tasks/intent/preview \
+curl -X POST http://127.0.0.1:8012/api/tasks/intent/preview \
   -H "Content-Type: application/json" \
   -d '{
     "intent_version":"v1",
@@ -93,7 +93,7 @@ curl -X POST http://127.0.0.1:8000/api/tasks/intent/preview \
 
 ### Run now (API)
 ```bash
-curl -X POST http://127.0.0.1:8000/api/tasks/run_now \
+curl -X POST http://127.0.0.1:8012/api/tasks/run_now \
   -H "Content-Type: application/json" \
   -d '{
     "command": "/usr/bin/true",
@@ -103,12 +103,12 @@ curl -X POST http://127.0.0.1:8000/api/tasks/run_now \
 
 ### Health check
 ```bash
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8012/health
 ```
 
 ### Validation rules
 ```bash
-curl http://127.0.0.1:8000/api/validation
+curl http://127.0.0.1:8012/api/validation
 ```
 
 ## Validation behavior
@@ -120,7 +120,7 @@ curl http://127.0.0.1:8000/api/validation
 
 ### Create action (API)
 ```bash
-curl -X POST http://127.0.0.1:8000/api/actions \
+curl -X POST http://127.0.0.1:8012/api/actions \
   -H "Content-Type: application/json" \
   -d '{
     "name": "backup_home",
