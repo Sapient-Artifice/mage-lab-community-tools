@@ -36,6 +36,47 @@ BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters["local_time"] = lambda dt: _to_local_time(dt)
 START_TIME = time.time()
+INTENT_VERSION_ALIASES = {
+    "v1": "v1",
+    "1": "v1",
+    "1.0": "v1",
+}
+INTENT_ERROR_MESSAGES = {
+    "unsupported_intent_version": "Unsupported intent_version.",
+    "invalid_timezone": "Invalid timezone.",
+    "unknown_action": "Unknown action_name.",
+    "command_or_action_required": "Command or action_name is required.",
+    "env_requires_action": "Environment variables require an action_name.",
+    "env_not_allowed": "Environment variables are not allowed for this action.",
+    "env_key_not_allowed": "One or more env keys are not allowed for this action.",
+    "command_required": "Command is required.",
+    "command_invalid": "Command is invalid.",
+    "command_must_be_absolute": "Command must be an absolute path.",
+    "command_not_found": "Command executable not found.",
+    "command_not_executable": "Command is not executable.",
+    "command_dir_not_allowed": "Command is outside allowed directories.",
+    "cwd_must_be_absolute": "cwd must be an absolute path.",
+    "cwd_not_found": "cwd does not exist.",
+    "cwd_dir_not_allowed": "cwd is outside allowed directories.",
+}
+INTENT_ERROR_HINTS = {
+    "unsupported_intent_version": "intent_version must be 'v1' (aliases: '1', '1.0').",
+    "invalid_timezone": "Use an IANA timezone like 'America/Los_Angeles'.",
+    "unknown_action": "Create the action first or provide a command.",
+    "command_or_action_required": "Provide either action_name or command.",
+    "env_requires_action": "Move env under an action_name allowlist.",
+    "env_not_allowed": "Remove env or update the action allowlist.",
+    "env_key_not_allowed": "Remove disallowed keys or update the action allowlist.",
+    "command_required": "Provide an absolute command path.",
+    "command_invalid": "Provide a valid command string.",
+    "command_must_be_absolute": "Use an absolute path like /usr/local/bin/tool.",
+    "command_not_found": "Verify the command path exists on the host.",
+    "command_not_executable": "Ensure the command has execute permissions.",
+    "command_dir_not_allowed": "Move the command under an allowed directory.",
+    "cwd_must_be_absolute": "Use an absolute path like /var/tmp.",
+    "cwd_not_found": "Ensure the cwd exists on the host.",
+    "cwd_dir_not_allowed": "Move cwd under an allowed directory.",
+}
 
 
 @app.on_event("startup")
@@ -58,6 +99,30 @@ def _to_local_time(dt: datetime | None) -> str:
         dt = dt.replace(tzinfo=timezone.utc)
     local_tz = datetime.now().astimezone().tzinfo
     return dt.astimezone(local_tz).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _normalize_intent_version(value: str) -> tuple[str | None, list[str]]:
+    normalized = INTENT_VERSION_ALIASES.get(value)
+    if normalized is None:
+        return None, ["unsupported_intent_version"]
+    return normalized, []
+
+
+def _intent_error(code: str) -> dict:
+    message = INTENT_ERROR_MESSAGES.get(code, code)
+    hint = INTENT_ERROR_HINTS.get(code)
+    payload = {"code": code, "message": message}
+    if hint:
+        payload["hint"] = hint
+    return payload
+
+
+def _raise_intent_validation(errors: list[str]) -> None:
+    if errors:
+        raise HTTPException(
+            status_code=400,
+            detail={"errors": [_intent_error(code) for code in errors]},
+        )
 
 
 def _parse_allowed_env(value: str | None) -> list[str] | None:
@@ -726,8 +791,10 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
     session = SessionLocal()
     try:
         errors: list[str] = []
-        if payload.intent_version != "v1":
-            errors.append("unsupported_intent_version")
+        normalized_intent_version, version_errors = _normalize_intent_version(
+            payload.intent_version
+        )
+        errors.extend(version_errors)
 
         try:
             tzinfo = ZoneInfo(payload.task.timezone)
@@ -735,8 +802,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             tzinfo = None
             errors.append("invalid_timezone")
 
-        if errors:
-            raise HTTPException(status_code=400, detail=errors)
+        _raise_intent_validation(errors)
 
         warnings: list[str] = []
         resolved_command = payload.task.command or ""
@@ -762,11 +828,12 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
                 command=command_value,
                 description=payload.task.description,
                 action_name=action_name,
-                intent_version=payload.intent_version,
+                intent_version=normalized_intent_version,
                 source=payload.meta.get("source") if payload.meta else None,
                 cwd=payload.task.cwd,
                 env_keys=list(env.keys()) if env else None,
                 warnings=["blocked"],
+                errors=[_intent_error(error_detail)],
             )
 
         if action_name:
@@ -829,7 +896,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             source = payload.meta.get("source")
         task = session.get(TaskRequest, task_id)
         if task is not None:
-            task.intent_version = payload.intent_version
+            task.intent_version = normalized_intent_version
             task.source = source
             task.description = payload.task.description
             task.action_id = action_id
@@ -846,7 +913,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             command=resolved_command,
             description=payload.task.description,
             action_name=action_name,
-            intent_version=payload.intent_version,
+            intent_version=normalized_intent_version,
             source=source,
             cwd=resolved_cwd,
             env_keys=list(env.keys()) if env else None,
@@ -859,8 +926,10 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
 @app.post("/api/tasks/intent/preview", response_model=TaskIntentResponse)
 def preview_task_intent(payload: TaskIntentEnvelope):
     errors: list[str] = []
-    if payload.intent_version != "v1":
-        errors.append("unsupported_intent_version")
+    normalized_intent_version, version_errors = _normalize_intent_version(
+        payload.intent_version
+    )
+    errors.extend(version_errors)
 
     try:
         tzinfo = ZoneInfo(payload.task.timezone)
@@ -868,8 +937,7 @@ def preview_task_intent(payload: TaskIntentEnvelope):
         tzinfo = None
         errors.append("invalid_timezone")
 
-    if errors:
-        raise HTTPException(status_code=400, detail=errors)
+    _raise_intent_validation(errors)
 
     warnings: list[str] = []
     resolved_command = payload.task.command or ""
@@ -882,38 +950,47 @@ def preview_task_intent(payload: TaskIntentEnvelope):
         with SessionLocal() as session:
             action = session.execute(select(Action).where(Action.name == action_name)).scalar_one_or_none()
             if action is None:
-                raise HTTPException(status_code=400, detail=["unknown_action"])
+                _raise_intent_validation(["unknown_action"])
             settings = _get_settings(session)
             allowed_command_dirs = action.allowed_command_dirs or settings.allowed_command_dirs
             allowed_cwd_dirs = action.allowed_cwd_dirs or settings.allowed_cwd_dirs
-            _validate_command(action.command, allowed_command_dirs)
+            try:
+                _validate_command(action.command, allowed_command_dirs)
+            except HTTPException as exc:
+                _raise_intent_validation([str(exc.detail)])
             resolved_command = action.command
             if resolved_cwd is None:
                 resolved_cwd = action.default_cwd
             allowed_env = action.allowed_env or []
             if env:
                 if not allowed_env:
-                    raise HTTPException(status_code=400, detail=["env_not_allowed"])
+                    _raise_intent_validation(["env_not_allowed"])
                 invalid_keys = sorted(set(env.keys()) - set(allowed_env))
                 if invalid_keys:
-                    raise HTTPException(status_code=400, detail=["env_key_not_allowed"])
+                    _raise_intent_validation(["env_key_not_allowed"])
     else:
         if not payload.task.command:
-            raise HTTPException(status_code=400, detail=["command_or_action_required"])
+            _raise_intent_validation(["command_or_action_required"])
         with SessionLocal() as session:
             settings = _get_settings(session)
             allowed_command_dirs = settings.allowed_command_dirs
             allowed_cwd_dirs = settings.allowed_cwd_dirs
-        _validate_command(payload.task.command, allowed_command_dirs)
+        try:
+            _validate_command(payload.task.command, allowed_command_dirs)
+        except HTTPException as exc:
+            _raise_intent_validation([str(exc.detail)])
         if env:
-            raise HTTPException(status_code=400, detail=["env_requires_action"])
+            _raise_intent_validation(["env_requires_action"])
     run_at_local = payload.task.run_at
     if run_at_local.tzinfo is None:
         run_at_local = run_at_local.replace(tzinfo=tzinfo)
     else:
         run_at_local = run_at_local.astimezone(tzinfo)
 
-    _validate_cwd(resolved_cwd, allowed_cwd_dirs)
+    try:
+        _validate_cwd(resolved_cwd, allowed_cwd_dirs)
+    except HTTPException as exc:
+        _raise_intent_validation([str(exc.detail)])
     source = None
     if payload.meta and isinstance(payload.meta, dict):
         source = payload.meta.get("source")
@@ -926,7 +1003,7 @@ def preview_task_intent(payload: TaskIntentEnvelope):
         command=resolved_command,
         description=payload.task.description,
         action_name=action_name,
-        intent_version=payload.intent_version,
+        intent_version=normalized_intent_version,
         source=source,
         cwd=resolved_cwd,
         env_keys=list(env.keys()) if env else None,

@@ -88,3 +88,7 @@ Rules:
 ## Error Handling
 - If a request is blocked, the task will be created with `status: "blocked"` and `error` set to the reason.
 - Use `mage_scheduler_get_validation()` to explain constraints to the user.
+
+## Leaving Notifications for Future Self
+- If a user wants the mage lab desktop app / or embedded LLM to do something specific at a later time you can schedule a reminder to self via this endpoint https://127.0.0.1:11115/ask_assistant
+- Example ` /usr/bin/curl -s -X POST http://127.0.0.1:11115/ask_assistant -H 'Content-Type: application/json' -d '{"message": "It is time to check in. Do the thing now."}' `

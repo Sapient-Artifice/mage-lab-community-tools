@@ -57,6 +57,7 @@ This document defines the LLM-facing contract for creating tasks.
 - Use `command` only if no Action exists; it must be an absolute executable path.
 - `run_at` must be an ISO datetime string.
 - `timezone` must be an IANA timezone (e.g., `America/Los_Angeles`).
+- `intent_version` accepts `v1`, `1`, or `1.0` and is normalized to `v1`.
 - `env` is only allowed when `action_name` is provided, and keys must be in the Action's allowlist.
 - `cwd` must be an absolute path when provided.
 - Commands and `cwd` must fall under the allowed directory settings (global or action-specific).
@@ -100,45 +101,47 @@ This document defines the LLM-facing contract for creating tasks.
 ## Error responses
 ```json
 {
-  "detail": ["unsupported_intent_version"]
+  "detail": {
+    "errors": [
+      {
+        "code": "unsupported_intent_version",
+        "message": "Unsupported intent_version.",
+        "hint": "intent_version must be 'v1' (aliases: '1', '1.0')."
+      }
+    ]
+  }
 }
 ```
 
 ```json
 {
-  "detail": ["invalid_timezone"]
+  "detail": {
+    "errors": [
+      {
+        "code": "invalid_timezone",
+        "message": "Invalid timezone.",
+        "hint": "Use an IANA timezone like 'America/Los_Angeles'."
+      }
+    ]
+  }
 }
 ```
 
 ```json
 {
-  "detail": ["unknown_action"]
+  "detail": {
+    "errors": [
+      {
+        "code": "unknown_action",
+        "message": "Unknown action_name.",
+        "hint": "Create the action first or provide a command."
+      }
+    ]
+  }
 }
 ```
 
-```json
-{
-  "detail": ["command_or_action_required"]
-}
-```
-
-```json
-{
-  "detail": ["env_requires_action"]
-}
-```
-
-```json
-{
-  "detail": ["env_not_allowed"]
-}
-```
-
-```json
-{
-  "detail": ["env_key_not_allowed"]
-}
-```
+Other validation failures return the same `code`/`message`/`hint` structure.
 
 ```json
 {

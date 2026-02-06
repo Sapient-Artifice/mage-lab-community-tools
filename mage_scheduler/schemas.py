@@ -70,6 +70,12 @@ class TaskIntentEnvelope(BaseModel):
     meta: dict | None = None
 
 
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+    hint: str | None = None
+
+
 class TaskIntentResponse(BaseModel):
     status: str
     task_id: int
@@ -83,6 +89,7 @@ class TaskIntentResponse(BaseModel):
     cwd: str | None = None
     env_keys: list[str] | None = None
     warnings: list[str]
+    errors: list[ErrorDetail] | None = None
 
 
 class TaskRead(BaseModel):
