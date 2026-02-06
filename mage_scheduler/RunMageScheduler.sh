@@ -1,7 +1,8 @@
 #!/bin/bash
 
-cd /home/bard/Mage/Workspace/mage_scheduler
+set -euo pipefail
+
+cd /home/bard/Desktop/mage-lab-community-tools/mage_scheduler
 
 uv run celery -A celery_app worker --beat --loglevel=info &
-
-uv run celery --broker=redis://localhost:6379/0 flower --port=5555 &
+uv run uvicorn api:app --reload --port 8012 &

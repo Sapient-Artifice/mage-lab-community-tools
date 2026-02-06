@@ -12,6 +12,10 @@ Mage Scheduler is a small task scheduling service built on Celery + Redis with a
 - Python 3.11+
 - Redis (default broker/backend at `redis://localhost:6379/0`)
 
+## Platform support
+- Linux and macOS only for now.
+- Windows is not supported yet and will be revisited.
+
 ## Setup
 ```bash
 uv venv
@@ -133,3 +137,4 @@ curl -X POST http://127.0.0.1:8000/api/actions \
 - Times in the UI are shown in local system time.
 - SQLite DB file: `mage_scheduler.db`.
 - Local artifacts are ignored via `mage_scheduler/.gitignore`.
+- GPU monitoring logs are stored at `mage_scheduler/tasks/gpu_monitor_log.csv`. Open `mage_scheduler/tasks/gpu_dashboard.html` in a browser to review.
