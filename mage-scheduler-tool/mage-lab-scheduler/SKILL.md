@@ -1,3 +1,10 @@
+---
+name: mage-scheduler-tool
+description: Use this skill when the user wants to schedule, run, or manage tasks and actions using Mage Scheduler, including validation, previews, and dashboard/status operations.
+metadata:
+  short-description: Schedule and manage tasks with Mage Scheduler
+---
+
 # Mage Scheduler Tool Skill
 
 Use this skill when the user wants to schedule tasks via Mage Scheduler or manage actions/settings.
@@ -25,7 +32,8 @@ Provide safe, structured task scheduling using the Mage Scheduler service and su
 ## Workflow
 1) Confirm the scheduler service is running.
    - Use `mage_scheduler_status()`; if not running, call `mage_scheduler_start()`.
-2) If the user wants a reusable action, create or update an action first.
+2a) If the user wants a reusable action, create or update an action first.
+2b) If the user wants a one-off task scheduled do not use env build the full command inline, if its a future task for mage see ask_assistant endpoint example below.
 3) Preview the intent with `mage_scheduler_preview_intent` when user confirmation is needed.
 4) Schedule with `mage_scheduler_schedule_intent` (or `mage_scheduler_run_now` for immediate execution).
 5) Verify with `mage_scheduler_list_tasks` or open the dashboard.
@@ -71,7 +79,7 @@ Use this structure for immediate execution:
 
 Rules:
 - `command` is required and must be an absolute executable path.
-- `env` is optional and should be a string-to-string map.
+- `env` is optional and should be a string-to-string map. Only use `env` when tied to a pre-approved `action_name`.
 
 ## Action Schema
 ```json
@@ -94,3 +102,5 @@ Rules:
 ## Leaving Notifications for Future Self
 - If a user wants the mage lab desktop app / or embedded LLM to do something specific at a later time you can schedule a reminder to self via this endpoint https://127.0.0.1:11115/ask_assistant
 - Example ` /usr/bin/curl -s -X POST http://127.0.0.1:11115/ask_assistant -H 'Content-Type: application/json' -d '{"message": "It is time to check in. Do the thing now."}' `
+- Always default to copying and adapting the **exact curl example** from `SKILL.md` unless told otherwise.     
+- If the user provides a reminder message and time, build the full `command` inline.
