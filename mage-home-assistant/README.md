@@ -31,3 +31,20 @@ query/control and expand to richer device-specific helpers later.
   if Home Assistant already has the devices configured.
 - `kasa_list_plugs` uses best-effort name matching; refine as you standardize
   entity names or add device registry helpers later.
+
+## Home Assistant Container Helper
+Use `home-assistant.sh` to run Home Assistant in Docker without retyping the
+full command each time.
+
+```bash
+cd mage-home-assistant
+./home-assistant.sh start
+```
+
+Available actions:
+- `./home-assistant.sh start`
+- `./home-assistant.sh stop`
+- `./home-assistant.sh restart`
+- `./home-assistant.sh status`
+- `./home-assistant.sh logs`
+- `./home-assistant.sh update`
