@@ -1,5 +1,7 @@
 import os
 import json
+import requests
+from urllib.parse import urljoin
 from jira import JIRA
 from jira.exceptions import JIRAError
 from utils.functions_metadata import function_schema
@@ -61,8 +63,6 @@ def jira_create_issue(
     except Exception as e:
         return f"An unexpected error occurred: {str(e)}"
 
-
-
 @function_schema(
     name="jira_edit_issue",
     description="Edit an issue using json fields.",
@@ -84,9 +84,9 @@ def jira_edit_issue(
     except json.JSONDecodeError:
         return "Error: 'update_fields' must be a valid JSON string."
     except JIRAError as e:
-        return f"An error occurred while editing the issue: {e.text.strip() or "error"}"
+        return f"An error occurred while editing the issue: {e.text.strip() or 'error'}"
     except Exception as e:
-        return f"An unexpected error occurred: {str(e) or "error"}"
+        return f"An unexpected error occurred: {str(e) or 'error'}"
 
 @function_schema(
     name="jira_transition_status",
@@ -121,7 +121,6 @@ def jira_transition_status(
         return f"An error occurred while transitioning the issue: {e.text.strip()}"
     except Exception as e:
         return f"An unexpected error occurred: {str(e)}"
-
 
 @function_schema(
     name="jira_get_issue_details",
@@ -169,7 +168,6 @@ def jira_get_issue_details(issue_key: str) -> str:
     except Exception as e:
         return f"An unexpected error occurred: {str(e)}"
 
-
 @function_schema(
     name="jira_add_attachment",
     description="Add an attachment to an issue.",
@@ -189,69 +187,92 @@ def jira_add_attachment(issue_key: str, attachment_path: str) -> str:
             return f"The attachment file '{resolved_path}' was not found."
         with resolved_path.open('rb') as file:
             jira.add_attachment(issue=issue, attachment=file)
-        
         return f"Attachment '{resolved_path.name}' added to issue {issue_key}."
-    
     except JIRAError as e:
         return f"An error occurred while adding the attachment: {e.text.strip()}"
     except Exception as e:
         return f"An unexpected error occurred: {str(e)}"
 
-
 @function_schema(
     name="jira_run_jql",
-    description="Use a JQL query.",
+    description="Use a JQL query with the modern REST API.",
     required_params=["query"],
-    # optional_params=[],
 )
 def jira_run_jql(query: str) -> str:
     """
-    Execute a JQL query and return matching issues.
+    Execute a JQL query using the modern Atlassian REST API v3 via POST.
     """
+    JIRA_ENDPOINT = os.getenv("JIRA_ENDPOINT")
+    JIRA_EMAIL = os.getenv("JIRA_EMAIL")
+    JIRA_API_KEY = os.getenv("JIRA_API_KEY")
+
+    if not all([JIRA_ENDPOINT, JIRA_EMAIL, JIRA_API_KEY]):
+        return "Error: Missing JIRA credentials (JIRA_ENDPOINT, JIRA_EMAIL, or JIRA_API_KEY)."
+
+    # Prepare headers
+    auth = (JIRA_EMAIL, JIRA_API_KEY)
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+
+    # Build the correct URL
+    url = f"{JIRA_ENDPOINT.rstrip('/')}/rest/api/3/search/jql"
+
+    # Payload
+    payload = {
+        "jql": query,
+        "maxResults": 50,
+        "fields": ["key", "summary", "status", "assignee"]
+    }
+
     try:
-        # Retrieve all issues matching the JQL query
-        issues = []
-        start_at = 0
-        max_results = 50  # Adjust as needed
-        total = 1  # Initialize to enter the loop
+        response = requests.post(url, json=payload, headers=headers, auth=auth)
+        if response.status_code == 400:
+            try:
+                post_error = response.json().get("errorMessages", [])
+            except Exception:
+                post_error = []
+            if any("Invalid request payload" in msg for msg in post_error):
+                response = requests.get(
+                    url,
+                    params={
+                        "jql": query,
+                        "maxResults": 50,
+                        "fields": ["key", "summary", "status", "assignee"],
+                    },
+                    headers={"Accept": "application/json"},
+                    auth=auth,
+                )
 
-        while start_at < total:
-            batch = jira.search_issues(
-                query,
-                startAt=start_at,
-                maxResults=max_results,
-                fields="key,summary,status,assignee",  # Retrieve only necessary fields
-            )
-            total = batch.total
-            issues.extend(batch)
-            start_at += max_results
+        response.raise_for_status()
+        data = response.json()
 
-        if not issues:
+        if "issues" not in data or not data["issues"]:
             return "No issues found for the provided JQL query."
 
-        # Prepare a formatted string of issue details
         result_lines = ["Matching issues:"]
-        for issue in issues:
-            key = issue.key
-            summary = issue.fields.summary
-            status = issue.fields.status.name
-            assignee = issue.fields.assignee.displayName if issue.fields.assignee else "Unassigned"
+        for issue in data["issues"]:
+            key = issue["key"]
+            summary = issue["fields"].get("summary", "No summary")
+            status = issue["fields"]["status"]["name"]
+            assignee = issue["fields"]["assignee"]["displayName"] if issue["fields"].get("assignee") else "Unassigned"
             result_lines.append(f"- {key}: {summary} (Status: {status}, Assignee: {assignee})")
+
         return "\n".join(result_lines)
-    except JIRAError as e:
-        if e.status_code == 400:
-            return f"Invalid JQL query: {e.text.strip()} Please verify your syntax and try again."
-        return f"An error occurred while querying JIRA: {e.text.strip()}"
+
+    except requests.exceptions.HTTPError as e:
+        error_detail = "Unknown error"
+        try:
+            error_json = e.response.json()
+            error_detail = error_json.get("errorMessages", [str(e)])[0]
+        except:
+            error_detail = e.response.text[:200]
+        return f"HTTP error occurred: {e.response.status_code} - {error_detail}"
+    except requests.exceptions.RequestException as e:
+        return f"An error occurred while querying JIRA: {str(e)}"
     except Exception as e:
-        return f"An unexpected error occurred: {str(e)}"
-
-
-@function_schema(
-    name="jira_comments",
-    description="Actions include add_comment or read_comments.",
-    required_params=["action", "issue_key"],
-    optional_params=["content"],
-)
+        return f"Unexpected error: {str(e)}"
 def jira_comments(
     action: str,
     issue_key: str,
@@ -285,7 +306,6 @@ def jira_comments(
     except Exception as e:
         return f"An unexpected error occurred: {str(e)}"
 
-  
 @function_schema(
     name="jira_assign_issue",
     description="Assign a user to an issue.",
@@ -311,38 +331,37 @@ def jira_assign_issue(issue_key: str, assignee: str) -> str:
     except Exception as e:
         return f"An unexpected error occurred: {str(e)}"
 
+@function_schema(
+    name="get_jira_transitions",
+    description="""
+    Retrieve all available transition statuses for a specific JIRA issue, including their names and IDs.
+    """,
+    required_params=["issue_key"],
+    optional_params=[],
+)
+def get_jira_transitions(issue_key: str) -> str:
+    """
+    Retrieve all available transition statuses for a specific JIRA issue.
 
- @function_schema(
- name="get_jira_transitions",
- description="""
- Retrieve all available transition statuses for a specific JIRA issue, including their names and IDs.
- """,
-     required_params=["issue_key"],
-     optional_params=[],
- )
- def get_jira_transitions(issue_key: str) -> str:
-     """
-     Retrieve all available transition statuses for a specific JIRA issue.
+    Args:
+        issue_key (str): The key of the issue to retrieve transitions for.
 
-     Args:
-         issue_key (str): The key of the issue to retrieve transitions for.
+    Returns:
+        str: A formatted list of all available transitions for the issue, or an error message.
+    """
+    try:
+        issue = jira.issue(issue_key)
+        transitions = jira.transitions(issue)  # Retrieve available transitions
+        if not transitions:
+            return f"No transitions available for issue {issue_key}."
 
-     Returns:
-         str: A formatted list of all available transitions for the issue, or an error message.
-     """
-     try:
-         issue = jira.issue(issue_key)
-         transitions = jira.transitions(issue)  # Retrieve available transitions
-         if not transitions:
-             return f"No transitions available for issue {issue_key}."
-
-         result_lines = [f"Available transitions for issue {issue_key}:"]
-         for transition in transitions:
-             transition_id = transition['id']
-             transition_name = transition['name']
-             result_lines.append(f"- ID: {transition_id}, Name: {transition_name}")
-         return "\n".join(result_lines)
-     except JIRAError as e:
-         return f"An error occurred while retrieving transitions for issue {issue_key}: {e.text.strip()}"
-     except Exception as e:
-         return f"An unexpected error occurred: {str(e)}"
+        result_lines = [f"Available transitions for issue {issue_key}:"]
+        for transition in transitions:
+            transition_id = transition['id']
+            transition_name = transition['name']
+            result_lines.append(f"- ID: {transition_id}, Name: {transition_name}")
+        return "\n".join(result_lines)
+    except JIRAError as e:
+        return f"An error occurred while retrieving transitions for issue {issue_key}: {e.text.strip()}"
+    except Exception as e:
+        return f"An unexpected error occurred: {str(e)}"
