@@ -3,8 +3,9 @@
 This tool connects mage lab to the Mage Scheduler service so the assistant can schedule tasks on your behalf.
 
 ## Install
-1) Copy this folder into `~/Mage/Tools`.
-2) Restart mage lab and enable the tool in Settings → Tools → Community.
+1) Copy the python file mage_scheduler_tool.py into `~/Mage/Tools`.
+2. Copy the mage-lab-scheduler folder into `~/Mage/Skills`
+2) Restart mage lab and enable the skill in Settings → Skills&Plugins.
 3) Ensure the scheduler service is running (see below).
 
 ## Scheduler Service Setup
