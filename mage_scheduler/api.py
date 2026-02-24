@@ -268,7 +268,9 @@ def _validate_action_payload(
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)):
-    tasks = db.execute(select(TaskRequest).order_by(TaskRequest.created_at.desc())).scalars().all()
+    tasks = db.execute(
+        select(TaskRequest).order_by(TaskRequest.created_at.desc()).limit(100)
+    ).scalars().all()
     actions = db.execute(select(Action).order_by(Action.name.asc())).scalars().all()
     recent_results = db.execute(
         select(TaskRequest)

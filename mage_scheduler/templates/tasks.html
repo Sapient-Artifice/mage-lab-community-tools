@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="30">
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mage Scheduler</title>
     <style>
@@ -157,6 +157,13 @@
                 commandInput.value = "";
             }
         });
+        let _formTouched = false;
+        document.querySelectorAll('input, select, textarea').forEach(el => {
+            el.addEventListener('input', () => { _formTouched = true; });
+            el.addEventListener('focus', () => { _formTouched = true; });
+        });
+        setTimeout(() => { if (!_formTouched) location.reload(); }, 30000);
+
         previewButton.addEventListener("click", async () => {
             const nlInput = document.getElementById("nl_request");
             const text = nlInput.value.trim();

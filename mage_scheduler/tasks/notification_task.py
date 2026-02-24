@@ -3,13 +3,11 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from celery import shared_task
 from tasks.celery_app import app
 from db import SessionLocal, init_db
 from models import TaskRequest
 
 @app.task
-@shared_task
 def run_command_at(task_request_id: int, command: str):
     init_db()
 
