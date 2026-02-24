@@ -23,13 +23,15 @@ uv sync
 ```
 
 ## Run
-Start the API:
+The easiest way to start both services together:
 ```bash
-uv run uvicorn api:app --reload --port 8012
+bash RunMageScheduler.sh
 ```
+Press Ctrl+C to stop both. For a persistent session that survives terminal close, run inside `tmux` or `screen`.
 
-Start Celery (worker + beat):
+Or start each service manually:
 ```bash
+uv run uvicorn api:app --port 8012
 uv run celery -A celery_app worker --beat --loglevel=info
 ```
 
@@ -40,6 +42,28 @@ The dashboard now includes a Recent Results section for quick verification.
 ## Actions
 Actions are named, vetted commands. You can manage them at `/actions` and set a default working directory plus allowed environment keys.
 Action commands must be absolute paths to executables.
+
+### Built-in action: `ask_assistant`
+The `ask_assistant` action is automatically registered on first startup. It sends a scheduled message to the Mage Lab assistant via the local `ask_assistant` endpoint — the primary way to schedule a future reminder or re-injection back to Mage.
+
+Schedule a reminder via the intent API:
+```bash
+curl -X POST http://127.0.0.1:8012/api/tasks/intent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "intent_version": "v1",
+    "task": {
+      "description": "Deployment review reminder",
+      "action_name": "ask_assistant",
+      "env": { "MESSAGE": "Time to review the deployment status." },
+      "run_at": "2026-02-24T15:00:00",
+      "timezone": "America/Los_Angeles"
+    },
+    "meta": { "source": "mage-lab-llm" }
+  }'
+```
+
+The `MESSAGE` env key is the only allowed variable for this action. The underlying script (`scripts/ask_assistant.py`) handles JSON encoding safely, so no quoting concerns with message content.
 
 ## Settings
 Global directory allowlists live at `/settings`. Actions can optionally override allowed command/cwd directories.

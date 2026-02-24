@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 DB_PATH = Path(__file__).resolve().parent / "mage_scheduler.db"
@@ -31,6 +32,28 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     _migrate_schema()
+    _seed_default_actions()
+
+
+_ASK_ASSISTANT_SCRIPT = Path(__file__).resolve().parent / "scripts" / "ask_assistant.py"
+
+
+def _seed_default_actions() -> None:
+    from models import Action
+
+    with SessionLocal() as session:
+        existing = session.execute(
+            select(Action).where(Action.name == "ask_assistant")
+        ).scalar_one_or_none()
+        if existing is None:
+            action = Action(
+                name="ask_assistant",
+                description="Send a scheduled message to the assistant.",
+                command=f"/usr/bin/python3 {_ASK_ASSISTANT_SCRIPT}",
+                allowed_env_json=json.dumps(["MESSAGE"]),
+            )
+            session.add(action)
+            session.commit()
 
 
 def _migrate_schema() -> None:

@@ -33,7 +33,7 @@ Provide safe, structured task scheduling using the Mage Scheduler service and su
 1) Confirm the scheduler service is running.
    - Use `mage_scheduler_status()`; if not running, call `mage_scheduler_start()`.
 2a) If the user wants a reusable action, create or update an action first.
-2b) If the user wants a one-off task scheduled do not use env build the full command inline, if its a future task for mage see ask_assistant endpoint example below.
+2b) If the user wants a one-off task scheduled do not use env — build the full command inline. Exception: for future messages back to the assistant, always use the built-in `ask_assistant` action (see section below).
 3) Preview the intent with `mage_scheduler_preview_intent` when user confirmation is needed.
 4) Schedule with `mage_scheduler_schedule_intent` (or `mage_scheduler_run_now` for immediate execution).
 5) Verify with `mage_scheduler_list_tasks` or open the dashboard.
@@ -99,8 +99,25 @@ Rules:
 - Intent validation errors return `detail.errors[]` objects with `code`, `message`, and optional `hint`.
 - Use `mage_scheduler_get_validation()` to explain constraints to the user.
 
-## Leaving Notifications for Future Self
-- If a user wants the mage lab desktop app / or embedded LLM to do something specific at a later time you can schedule a reminder to self via this endpoint https://127.0.0.1:11115/ask_assistant
-- Example ` /usr/bin/curl -s -X POST http://127.0.0.1:11115/ask_assistant -H 'Content-Type: application/json' -d '{"message": "It is time to check in. Do the thing now."}' `
-- Always default to copying and adapting the **exact curl example** from `SKILL.md` unless told otherwise.     
-- If the user provides a reminder message and time, build the full `command` inline.
+## Scheduling Messages for Future Self (ask_assistant)
+The `ask_assistant` action is built into the scheduler and auto-registered on startup. Use it whenever you want to send a message or reminder back to the assistant at a future time — this is the preferred pattern over building a raw curl command inline.
+
+Always use `action_name: "ask_assistant"` with `env: { "MESSAGE": "..." }`:
+
+```json
+{
+  "intent_version": "v1",
+  "task": {
+    "description": "Reminder: check deployment status",
+    "action_name": "ask_assistant",
+    "env": { "MESSAGE": "It is time to check in. Review the deployment now." },
+    "run_at": "2026-02-24T15:00:00",
+    "timezone": "America/Los_Angeles"
+  },
+  "meta": { "source": "mage-lab-llm" }
+}
+```
+
+- `MESSAGE` is the only allowed env key for this action.
+- The message content is JSON-encoded safely by the underlying script — no escaping needed.
+- The action POSTs to `http://127.0.0.1:11115/ask_assistant` internally.
