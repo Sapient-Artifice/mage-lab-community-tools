@@ -18,6 +18,11 @@ This document defines the LLM-facing contract for creating tasks.
 ### Run now
 `POST /api/tasks/run_now`
 
+### Cancel task
+`POST /api/tasks/{task_id}/cancel`
+
+Only valid for tasks with status `scheduled` or `running`. Returns `{"status": "cancelled", "task_id": N}` or a 400 if the task is already in a terminal state.
+
 ### Validation rules
 `GET /api/validation`
 
@@ -39,11 +44,13 @@ This document defines the LLM-facing contract for creating tasks.
     "action_name": "backup_home",
     "command": "/usr/local/bin/backup_home.sh",
     "run_at": "2026-02-05T18:00:00",
+    "run_in": "2h",
     "timezone": "America/Los_Angeles",
     "cwd": "/usr/local/bin",
     "env": {
       "PROJECT_ID": "example"
-    }
+    },
+    "notify_on_complete": false
   },
   "meta": {
     "source": "mage-lab-llm",
@@ -55,12 +62,14 @@ This document defines the LLM-facing contract for creating tasks.
 ### Rules
 - Prefer `action_name` when possible. It maps to a user-defined Action.
 - Use `command` only if no Action exists; it must be an absolute executable path.
-- `run_at` must be an ISO datetime string.
-- `timezone` must be an IANA timezone (e.g., `America/Los_Angeles`).
+- Provide either `run_at` (ISO datetime) or `run_in` (duration string) — not both.
+- `run_in` accepts durations like `"30m"`, `"2h"`, `"1d"`, `"90s"`. Time is computed from now in UTC.
+- `timezone` must be an IANA timezone (e.g., `America/Los_Angeles`). Defaults to `"UTC"` if omitted; primarily affects how `scheduled_at_local` is displayed in the response.
 - `intent_version` accepts `v1`, `1`, or `1.0` and is normalized to `v1`.
 - `env` is only allowed when `action_name` is provided, and keys must be in the Action's allowlist.
 - `cwd` must be an absolute path when provided.
 - Commands and `cwd` must fall under the allowed directory settings (global or action-specific).
+- Set `notify_on_complete: true` to receive an automated message via the ask_assistant endpoint when the task finishes. The notification includes task ID, status, exit code, and truncated output.
 
 ## Example preview response
 ```json
@@ -76,6 +85,7 @@ This document defines the LLM-facing contract for creating tasks.
   "source": "mage-lab-llm",
   "cwd": "/usr/local/bin",
   "env_keys": ["PROJECT_ID"],
+  "notify_on_complete": false,
   "warnings": []
 }
 ```
@@ -94,6 +104,7 @@ This document defines the LLM-facing contract for creating tasks.
   "source": "mage-lab-llm",
   "cwd": "/usr/local/bin",
   "env_keys": ["PROJECT_ID"],
+  "notify_on_complete": false,
   "warnings": []
 }
 ```
@@ -121,6 +132,34 @@ This document defines the LLM-facing contract for creating tasks.
         "code": "invalid_timezone",
         "message": "Invalid timezone.",
         "hint": "Use an IANA timezone like 'America/Los_Angeles'."
+      }
+    ]
+  }
+}
+```
+
+```json
+{
+  "detail": {
+    "errors": [
+      {
+        "code": "run_in_invalid",
+        "message": "run_in value is not a valid duration.",
+        "hint": "Use a duration like '30m', '2h', '1d', or '90s'."
+      }
+    ]
+  }
+}
+```
+
+```json
+{
+  "detail": {
+    "errors": [
+      {
+        "code": "run_at_or_run_in_required",
+        "message": "Either run_at or run_in is required.",
+        "hint": "Provide run_at (datetime) or run_in (duration string)."
       }
     ]
   }

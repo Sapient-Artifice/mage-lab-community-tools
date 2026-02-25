@@ -34,6 +34,7 @@ If you use a dedicated venv, set `MAGE_SCHEDULER_PYTHON` to that venv's Python.
 - `mage_scheduler_preview_intent(intent_json)`
 - `mage_scheduler_schedule_intent(intent_json)`
 - `mage_scheduler_run_now(task_json)`
+- `mage_scheduler_cancel_task(task_id)`
 - `mage_scheduler_list_tasks(limit)`
 - `mage_scheduler_list_actions()`
 - `mage_scheduler_get_validation()`

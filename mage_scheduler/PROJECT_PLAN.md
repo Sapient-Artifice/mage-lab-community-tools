@@ -11,35 +11,41 @@ Provide a task scheduling service that accepts structured LLM task intents, vali
 - Task creation form
 - Task deletion
 
-## Phase 2 (in progress)
+## Phase 2 (done)
 LLM-first task intent flow:
-- Intent schema and validation
-- `/api/tasks/intent` endpoint
-- `/api/tasks/intent/preview` endpoint
+- Intent schema (v1) and validation
+- `/api/tasks/intent` and `/api/tasks/intent/preview` endpoints
 - Action registry + fallback to raw command
 - Dashboard transparency (source, intent version, action name)
+- `ask_assistant` built-in action for future self-messages
+- Allowlist-based safety (commands, cwd, env vars)
 
-## Phase 3 (next)
-LLM integration and safety:
-- Command registry in JSON/DB
-- Action management UI
-- Validation rules (allowed dirs, env vars, time windows)
-- Audit logging of LLM requests and user confirmations
+## Phase 3 (done)
+Feedback loop and UX:
+- `run_in` duration shorthand (`"2h"`, `"30m"`, `"1d"`, `"90s"`)
+- `notify_on_complete` — automated task completion notifications via ask_assistant
+- Automated message disclosure headers (LLM can distinguish scheduler messages from user input)
+- Task cancellation (`POST /api/tasks/{id}/cancel`)
+- Schema auto-migration on startup
 
-## Phase 4
+## Phase 4 (next)
+Resilience and workflow:
+- Retry policy on actions (max_retries, retry_delay)
+- Task dependencies (`depends_on: [task_id]`)
+- Recurrence / cron expressions
+- Approval gate (`require_approval` on actions)
+- Result retention / auto-cleanup of old terminal tasks
+- Task stats endpoint (`GET /api/tasks/stats`)
+
+## Phase 5
 User experience:
 - Task creation wizard in dashboard
-- Search/filter by status/source
+- Search/filter by status/source/action
 - Status history timeline
 - Export task results
+- Outbound webhooks on task completion
 
 ## Open decisions
-- Action registry storage (file vs DB)
 - Permissions model (still single-user for now)
 - Script execution strategy (shell vs direct call with args)
-- Task result retention policy
-
-## Next work session
-- Add action management UI or JSON-based action loading
-- Add validation hooks for command safety
-- Add optional `cwd` and `env` (whitelisted) to intent schema
+- Secret management for env vars at rest
