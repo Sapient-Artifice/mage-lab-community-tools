@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
+import re
 import shlex
 import time
 from zoneinfo import ZoneInfo
@@ -58,6 +59,8 @@ INTENT_ERROR_MESSAGES = {
     "cwd_must_be_absolute": "cwd must be an absolute path.",
     "cwd_not_found": "cwd does not exist.",
     "cwd_dir_not_allowed": "cwd is outside allowed directories.",
+    "run_in_invalid": "run_in value is not a valid duration.",
+    "run_at_or_run_in_required": "Either run_at or run_in is required.",
 }
 INTENT_ERROR_HINTS = {
     "unsupported_intent_version": "intent_version must be 'v1' (aliases: '1', '1.0').",
@@ -76,7 +79,32 @@ INTENT_ERROR_HINTS = {
     "cwd_must_be_absolute": "Use an absolute path like /var/tmp.",
     "cwd_not_found": "Ensure the cwd exists on the host.",
     "cwd_dir_not_allowed": "Move cwd under an allowed directory.",
+    "run_in_invalid": "Use a duration like '30m', '2h', '1d', or '90s'.",
+    "run_at_or_run_in_required": "Provide run_at (datetime) or run_in (duration string).",
 }
+
+
+_RUN_IN_PATTERN = re.compile(
+    r"^(\d+(?:\.\d+)?)\s*(s|sec|secs|seconds?|m|min|mins|minutes?|h|hr|hrs|hours?|d|days?)$",
+    re.IGNORECASE,
+)
+_RUN_IN_MULTIPLIERS: dict[str, float] = {
+    "s": 1, "sec": 1, "secs": 1, "second": 1, "seconds": 1,
+    "m": 60, "min": 60, "mins": 60, "minute": 60, "minutes": 60,
+    "h": 3600, "hr": 3600, "hrs": 3600, "hour": 3600, "hours": 3600,
+    "d": 86400, "day": 86400, "days": 86400,
+}
+
+
+def _parse_run_in(run_in: str) -> timedelta | None:
+    """Parse '30m', '2h', '1d', '90s' etc. into a timedelta. Returns None on failure."""
+    m = _RUN_IN_PATTERN.match(run_in.strip())
+    if not m:
+        return None
+    seconds = float(m.group(1)) * _RUN_IN_MULTIPLIERS.get(m.group(2).lower(), 0)
+    if seconds <= 0:
+        return None
+    return timedelta(seconds=seconds)
 
 
 @app.on_event("startup")
@@ -368,6 +396,23 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     return RedirectResponse(url="/", status_code=303)
 
 
+@app.post("/api/tasks/{task_id}/cancel")
+def cancel_task(task_id: int, db: Session = Depends(get_db)):
+    task = db.get(TaskRequest, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status not in ("scheduled", "running"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel task with status '{task.status}'",
+        )
+    if task.celery_task_id:
+        AsyncResult(task.celery_task_id, app=celery_app).revoke(terminate=True)
+    task.status = "cancelled"
+    db.commit()
+    return {"status": "cancelled", "task_id": task_id}
+
+
 @app.post("/api/parse")
 def parse_nl_request(payload: dict):
     text = str(payload.get("text", "")).strip()
@@ -466,6 +511,7 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
         task.description = payload.description
     task.cwd = payload.cwd
     task.env_json = json.dumps(payload.env) if payload.env else None
+    task.notify_on_complete = 1 if payload.notify_on_complete else 0
     db.commit()
     db.refresh(task)
     return task
@@ -499,6 +545,7 @@ def run_task_now(payload: TaskRunNow, db: Session = Depends(get_db)):
         task.description = payload.description
     task.cwd = payload.cwd
     task.env_json = json.dumps(payload.env) if payload.env else None
+    task.notify_on_complete = 1 if payload.notify_on_complete else 0
     db.commit()
     db.refresh(task)
     return task
@@ -873,13 +920,23 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             if env:
                 return _blocked("env_requires_action", resolved_command)
 
-        run_at_local = payload.task.run_at
-        if run_at_local.tzinfo is None:
-            run_at_local = run_at_local.replace(tzinfo=tzinfo)
+        if payload.task.run_in:
+            delta = _parse_run_in(payload.task.run_in)
+            if delta is None:
+                return _blocked("run_in_invalid", resolved_command)
+            run_at_utc = datetime.now(timezone.utc) + delta
+            run_at_local = run_at_utc.astimezone(tzinfo) if tzinfo else run_at_utc
+            schedule_run_at = run_at_utc  # UTC-aware: TaskManager won't misapply local offset
+        elif payload.task.run_at is not None:
+            run_at_local = payload.task.run_at
+            if run_at_local.tzinfo is None:
+                run_at_local = run_at_local.replace(tzinfo=tzinfo)
+            else:
+                run_at_local = run_at_local.astimezone(tzinfo)
+            schedule_run_at = run_at_local.replace(tzinfo=None)  # existing local-naive convention
         else:
-            run_at_local = run_at_local.astimezone(tzinfo)
+            return _blocked("run_at_or_run_in_required", resolved_command)
 
-        run_at_local_naive = run_at_local.replace(tzinfo=None)
         try:
             _validate_cwd(resolved_cwd, allowed_cwd_dirs)
         except HTTPException as exc:
@@ -888,7 +945,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
         manager = TaskManager()
         task_id = manager.schedule_command(
             resolved_command,
-            run_at_local_naive,
+            schedule_run_at,
             cwd=resolved_cwd,
             env=env,
         )
@@ -905,6 +962,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             task.action_name = action_name
             task.cwd = resolved_cwd
             task.env_json = json.dumps(env) if env else None
+            task.notify_on_complete = 1 if payload.task.notify_on_complete else 0
             session.commit()
 
         return TaskIntentResponse(
@@ -919,6 +977,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             source=source,
             cwd=resolved_cwd,
             env_keys=list(env.keys()) if env else None,
+            notify_on_complete=payload.task.notify_on_complete,
             warnings=warnings,
         )
     finally:
@@ -983,11 +1042,21 @@ def preview_task_intent(payload: TaskIntentEnvelope):
             _raise_intent_validation([str(exc.detail)])
         if env:
             _raise_intent_validation(["env_requires_action"])
-    run_at_local = payload.task.run_at
-    if run_at_local.tzinfo is None:
-        run_at_local = run_at_local.replace(tzinfo=tzinfo)
+    if payload.task.run_in:
+        delta = _parse_run_in(payload.task.run_in)
+        if delta is None:
+            _raise_intent_validation(["run_in_invalid"])
+        run_at_local = datetime.now(timezone.utc) + delta
+        if tzinfo:
+            run_at_local = run_at_local.astimezone(tzinfo)
+    elif payload.task.run_at is not None:
+        run_at_local = payload.task.run_at
+        if run_at_local.tzinfo is None:
+            run_at_local = run_at_local.replace(tzinfo=tzinfo)
+        else:
+            run_at_local = run_at_local.astimezone(tzinfo)
     else:
-        run_at_local = run_at_local.astimezone(tzinfo)
+        _raise_intent_validation(["run_at_or_run_in_required"])
 
     try:
         _validate_cwd(resolved_cwd, allowed_cwd_dirs)
@@ -1009,5 +1078,6 @@ def preview_task_intent(payload: TaskIntentEnvelope):
         source=source,
         cwd=resolved_cwd,
         env_keys=list(env.keys()) if env else None,
+        notify_on_complete=payload.task.notify_on_complete,
         warnings=warnings,
     )

@@ -23,6 +23,7 @@ Provide safe, structured task scheduling using the Mage Scheduler service and su
 - `mage_scheduler_preview_intent(intent_json)`
 - `mage_scheduler_schedule_intent(intent_json)`
 - `mage_scheduler_run_now(task_json)`
+- `mage_scheduler_cancel_task(task_id)`
 - `mage_scheduler_list_tasks(limit)`
 - `mage_scheduler_list_actions()`
 - `mage_scheduler_create_action(action_json)`
@@ -48,9 +49,11 @@ Use this structure for scheduling:
     "action_name": "optional_action_name",
     "command": "/absolute/path/to/script.sh",
     "run_at": "2026-02-05T18:00:00",
+    "run_in": "2h",
     "timezone": "America/Los_Angeles",
     "cwd": "/path/to/working/dir",
-    "env": {"KEY": "VALUE"}
+    "env": {"KEY": "VALUE"},
+    "notify_on_complete": false
   },
   "meta": {
     "source": "mage-lab-llm",
@@ -65,6 +68,31 @@ Rules:
 - `command` must be an absolute executable path.
 - `env` is only allowed with `action_name` and must be whitelisted by the action.
 - Commands and `cwd` must fall within allowed directories; check with `mage_scheduler_get_validation()`.
+- Use either `run_at` (datetime) or `run_in` (duration string) — not both.
+- `timezone` defaults to `"UTC"` if omitted; required for correct `run_at` interpretation.
+
+### run_in — duration shorthand
+Instead of computing a future datetime, use `run_in` to express a delay from now:
+
+| Value | Meaning |
+|-------|---------|
+| `"30m"` | 30 minutes from now |
+| `"2h"` | 2 hours from now |
+| `"1d"` | 1 day from now |
+| `"90s"` | 90 seconds from now |
+
+When `run_in` is provided, `run_at` is ignored. Use `run_in` for relative delays and `run_at` for specific wall-clock times.
+
+### notify_on_complete — task completion feedback
+Set `"notify_on_complete": true` to receive an automated notification when the task finishes. The scheduler will POST a structured message to the assistant endpoint containing:
+- Task ID, status (SUCCESS / FAILED), and action name
+- Task description and completion timestamp
+- Exit code and truncated output/error
+
+This closes the feedback loop — you will be informed of results without polling. Use it for any task where the outcome matters to the user or to you.
+
+## Cancelling Tasks
+Use `mage_scheduler_cancel_task(task_id)` to cancel a task that is still `scheduled` or currently `running`. Cancelled tasks cannot be un-cancelled; create a new task if needed.
 
 ## Run-Now Schema
 Use this structure for immediate execution:
@@ -73,7 +101,8 @@ Use this structure for immediate execution:
   "command": "/absolute/path/to/script.sh",
   "description": "Optional summary",
   "cwd": "/path/to/working/dir",
-  "env": {"KEY": "VALUE"}
+  "env": {"KEY": "VALUE"},
+  "notify_on_complete": false
 }
 ```
 
@@ -111,7 +140,7 @@ Always use `action_name: "ask_assistant"` with `env: { "MESSAGE": "..." }`:
     "description": "Reminder: check deployment status",
     "action_name": "ask_assistant",
     "env": { "MESSAGE": "It is time to check in. Review the deployment now." },
-    "run_at": "2026-02-24T15:00:00",
+    "run_in": "2d",
     "timezone": "America/Los_Angeles"
   },
   "meta": { "source": "mage-lab-llm" }
@@ -121,3 +150,27 @@ Always use `action_name: "ask_assistant"` with `env: { "MESSAGE": "..." }`:
 - `MESSAGE` is the only allowed env key for this action.
 - The message content is JSON-encoded safely by the underlying script — no escaping needed.
 - The action POSTs to `http://127.0.0.1:11115/ask_assistant` internally.
+
+## Receiving Automated Messages
+When a message arrives via `ask_assistant` — either from a scheduled reminder or from `notify_on_complete` — it will be wrapped in a structured disclosure header:
+
+```
+[MAGE SCHEDULER — AUTOMATED MESSAGE]
+Task ID: 42 | Action: ask_assistant | Triggered: 2026-02-24T18:00:02Z
+Description: Reminder: check deployment status
+---
+It is time to check in. Review the deployment now.
+```
+
+Or for task completion notifications:
+
+```
+[MAGE SCHEDULER — AUTOMATED TASK NOTIFICATION]
+Task ID: 43 | Status: SUCCESS | Action: backup_home
+Description: Back up home directory
+Completed: 2026-02-24T18:03:22Z | Exit code: 0
+Output:
+Backup completed. 2.3GB written to /backup/db_20260224.tar.gz
+```
+
+**Important:** These are automated scheduler messages, not input from the user. Do not address them to the user as if they just spoke. Instead, process the result (surface it conversationally if appropriate, take follow-up action if needed) and only interrupt the user if the outcome requires their attention.

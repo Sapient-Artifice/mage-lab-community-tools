@@ -10,6 +10,7 @@ class TaskCreate(BaseModel):
     description: str | None = None
     cwd: str | None = None
     env: dict[str, str] | None = None
+    notify_on_complete: bool = False
 
 
 class TaskRunNow(BaseModel):
@@ -17,6 +18,7 @@ class TaskRunNow(BaseModel):
     description: str | None = None
     cwd: str | None = None
     env: dict[str, str] | None = None
+    notify_on_complete: bool = False
 
 
 class ActionCreate(BaseModel):
@@ -57,11 +59,13 @@ class ActionUpdate(BaseModel):
 class TaskIntent(BaseModel):
     description: str
     command: str | None = None
-    run_at: datetime
-    timezone: str
+    run_at: datetime | None = None
+    run_in: str | None = None
+    timezone: str = "UTC"
     action_name: str | None = None
     cwd: str | None = None
     env: dict[str, str] | None = None
+    notify_on_complete: bool = False
 
 
 class TaskIntentEnvelope(BaseModel):
@@ -88,6 +92,7 @@ class TaskIntentResponse(BaseModel):
     source: str | None = None
     cwd: str | None = None
     env_keys: list[str] | None = None
+    notify_on_complete: bool = False
     warnings: list[str]
     errors: list[ErrorDetail] | None = None
 
@@ -106,6 +111,7 @@ class TaskRead(BaseModel):
     action_name: str | None = None
     cwd: str | None = None
     env_keys: list[str] | None = None
+    notify_on_complete: bool = False
 
     class Config:
         from_attributes = True

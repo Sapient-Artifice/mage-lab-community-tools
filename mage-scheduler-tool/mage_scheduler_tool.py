@@ -374,6 +374,24 @@ def mage_scheduler_update_action(action_id: str, action_json: str) -> str:
 
 
 @function_schema(
+    name="mage_scheduler_cancel_task",
+    description="Cancel a scheduled or running task. Only works on tasks with status 'scheduled' or 'running'.",
+    required_params=["task_id"],
+    optional_params=[],
+)
+def mage_scheduler_cancel_task(task_id: str) -> str:
+    try:
+        task_id_value = int(task_id)
+    except ValueError:
+        return json.dumps({"error": "invalid_task_id"}, indent=2)
+    base_url = _current_base_url()
+    resp = requests.post(f"{base_url}/api/tasks/{task_id_value}/cancel", timeout=10)
+    if not resp.ok:
+        return json.dumps({"error": resp.text, "status_code": resp.status_code}, indent=2)
+    return json.dumps(resp.json(), indent=2)
+
+
+@function_schema(
     name="mage_scheduler_delete_action",
     description="Delete a scheduler action",
     required_params=["action_id"],

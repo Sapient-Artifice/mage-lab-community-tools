@@ -67,6 +67,7 @@ def _migrate_schema() -> None:
         _add_column_if_missing(connection, "task_requests", columns, "action_name", "TEXT")
         _add_column_if_missing(connection, "task_requests", columns, "cwd", "TEXT")
         _add_column_if_missing(connection, "task_requests", columns, "env_json", "TEXT")
+        _add_column_if_missing(connection, "task_requests", columns, "notify_on_complete", "INTEGER NOT NULL DEFAULT 0")
 
         action_columns = {
             row[1] for row in connection.exec_driver_sql("PRAGMA table_info(actions)").fetchall()

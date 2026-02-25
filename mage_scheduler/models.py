@@ -91,6 +91,7 @@ class TaskRequest(Base):
     action_name = Column(Text, nullable=True)
     cwd = Column(Text, nullable=True)
     env_json = Column(Text, nullable=True)
+    notify_on_complete = Column(Integer, default=0, nullable=False)
 
     @property
     def env_keys(self) -> list[str] | None:
