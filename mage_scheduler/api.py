@@ -16,12 +16,17 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from croniter import croniter
+
 from db import SessionLocal, init_db
-from models import Action, Settings, TaskRequest
+from models import Action, RecurringTask, Settings, TaskRequest
 from schemas import (
     ActionCreate,
     ActionRead,
     ActionUpdate,
+    RecurringTaskCreate,
+    RecurringTaskRead,
+    RecurringTaskUpdate,
     TaskCreate,
     TaskRead,
     TaskIntentEnvelope,
@@ -30,6 +35,7 @@ from schemas import (
 )
 from tasks.task_manager import TaskManager
 from tasks.celery_app import app as celery_app
+from tasks.recurring_task import compute_initial_next_run
 from nl_parser import parse_request
 
 app = FastAPI(title="Mage Scheduler")
@@ -61,6 +67,10 @@ INTENT_ERROR_MESSAGES = {
     "cwd_dir_not_allowed": "cwd is outside allowed directories.",
     "run_in_invalid": "run_in value is not a valid duration.",
     "run_at_or_run_in_required": "Either run_at or run_in is required.",
+    "cron_invalid": "cron expression is invalid.",
+    "cron_and_run_at_exclusive": "cron and run_at/run_in are mutually exclusive.",
+    "recurring_name_required": "description is used as the recurring task name and must be unique.",
+    "recurring_name_exists": "A recurring task with this name already exists.",
 }
 INTENT_ERROR_HINTS = {
     "unsupported_intent_version": "intent_version must be 'v1' (aliases: '1', '1.0').",
@@ -81,6 +91,10 @@ INTENT_ERROR_HINTS = {
     "cwd_dir_not_allowed": "Move cwd under an allowed directory.",
     "run_in_invalid": "Use a duration like '30m', '2h', '1d', or '90s'.",
     "run_at_or_run_in_required": "Provide run_at (datetime) or run_in (duration string).",
+    "cron_invalid": "Use a 5-field cron like '0 9 * * 1' (Mon 9am).",
+    "cron_and_run_at_exclusive": "Remove run_at/run_in when using cron.",
+    "recurring_name_required": "Provide a unique description to name the recurring task.",
+    "recurring_name_exists": "Choose a different description/name.",
 }
 
 
@@ -256,6 +270,10 @@ def _is_path_allowed(path: str, allowed_dirs: list[str]) -> bool:
     return False
 
 
+def _validate_cron(expr: str) -> bool:
+    return croniter.is_valid(expr)
+
+
 def _validate_dirs_list(dirs_list: list[str] | None, error_code: str) -> None:
     if not dirs_list:
         return
@@ -312,6 +330,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         .order_by(TaskRequest.created_at.desc())
         .limit(5)
     ).scalars().all()
+    recurring_tasks = db.execute(
+        select(RecurringTask).order_by(RecurringTask.name.asc())
+    ).scalars().all()
     return templates.TemplateResponse(
         "tasks.html",
         {
@@ -320,6 +341,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "actions": actions,
             "recent_results": recent_results,
             "blocked_tasks": blocked_tasks,
+            "recurring_tasks": recurring_tasks,
         },
     )
 
@@ -851,6 +873,147 @@ def delete_action(action_id: int, db: Session = Depends(get_db)):
     return {"status": "deleted", "action_id": action_id}
 
 
+def _handle_recurring_intent(payload, session, normalized_intent_version, tzinfo):
+    """Create (or update) a RecurringTask from an intent with a cron field."""
+    task = payload.task
+    errors: list[str] = []
+
+    # cron and run_at/run_in are mutually exclusive
+    if task.run_at is not None or task.run_in is not None:
+        errors.append("cron_and_run_at_exclusive")
+
+    if not _validate_cron(task.cron):
+        errors.append("cron_invalid")
+
+    _raise_intent_validation(errors)
+
+    # Resolve command/action
+    resolved_command = task.command or ""
+    action_name = task.action_name
+    action_id = None
+    resolved_cwd = task.cwd
+    env = task.env
+    allowed_command_dirs = None
+    allowed_cwd_dirs = None
+    effective_max_retries = task.max_retries if task.max_retries is not None else 0
+    effective_retry_delay = task.retry_delay if task.retry_delay is not None else 60
+
+    def _blocked_recurring(error_detail: str, command_value: str):
+        blocked = _create_blocked_task(session, task.description, command_value, error_detail)
+        return TaskIntentResponse(
+            status="blocked",
+            task_id=blocked.id,
+            scheduled_at_local=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+            scheduled_at_utc=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            command=command_value,
+            description=task.description,
+            action_name=action_name,
+            intent_version=normalized_intent_version,
+            source=payload.meta.get("source") if payload.meta else None,
+            cwd=task.cwd,
+            env_keys=list(env.keys()) if env else None,
+            warnings=["blocked"],
+            errors=[_intent_error(error_detail)],
+            cron=task.cron,
+        )
+
+    if action_name:
+        action = session.execute(
+            select(Action).where(Action.name == action_name)
+        ).scalar_one_or_none()
+        if action is None:
+            return _blocked_recurring("unknown_action", resolved_command)
+        settings = _get_settings(session)
+        allowed_command_dirs = action.allowed_command_dirs or settings.allowed_command_dirs
+        allowed_cwd_dirs = action.allowed_cwd_dirs or settings.allowed_cwd_dirs
+        try:
+            _validate_command(action.command, allowed_command_dirs)
+        except HTTPException as exc:
+            return _blocked_recurring(str(exc.detail), action.command)
+        resolved_command = action.command
+        action_id = action.id
+        if resolved_cwd is None:
+            resolved_cwd = action.default_cwd
+        if task.max_retries is None:
+            effective_max_retries = action.max_retries or 0
+        if task.retry_delay is None:
+            effective_retry_delay = action.retry_delay or 60
+        allowed_env = action.allowed_env or []
+        if env:
+            if not allowed_env:
+                return _blocked_recurring("env_not_allowed", action.command)
+            invalid_keys = sorted(set(env.keys()) - set(allowed_env))
+            if invalid_keys:
+                return _blocked_recurring("env_key_not_allowed", action.command)
+    else:
+        if not resolved_command:
+            return _blocked_recurring("command_or_action_required", "")
+        settings = _get_settings(session)
+        allowed_command_dirs = settings.allowed_command_dirs
+        allowed_cwd_dirs = settings.allowed_cwd_dirs
+        try:
+            _validate_command(resolved_command, allowed_command_dirs)
+        except HTTPException as exc:
+            return _blocked_recurring(str(exc.detail), resolved_command)
+        if env:
+            return _blocked_recurring("env_requires_action", resolved_command)
+
+    try:
+        _validate_cwd(resolved_cwd, allowed_cwd_dirs)
+    except HTTPException as exc:
+        return _blocked_recurring(str(exc.detail), resolved_command)
+
+    # Check for name conflict
+    existing = session.execute(
+        select(RecurringTask).where(RecurringTask.name == task.description)
+    ).scalar_one_or_none()
+    if existing:
+        return _blocked_recurring("recurring_name_exists", resolved_command)
+
+    source = payload.meta.get("source") if payload.meta else None
+    tz_name = task.timezone or "UTC"
+    next_run_at = compute_initial_next_run(task.cron, tz_name)
+
+    rt = RecurringTask(
+        name=task.description,
+        description=task.description,
+        cron=task.cron,
+        timezone=tz_name,
+        action_name=action_name,
+        command=task.command,
+        cwd=resolved_cwd,
+        env_json=json.dumps(env) if env else None,
+        notify_on_complete=1 if task.notify_on_complete else 0,
+        max_retries=max(0, effective_max_retries),
+        retry_delay=max(1, effective_retry_delay),
+        enabled=1,
+        next_run_at=next_run_at,
+    )
+    session.add(rt)
+    session.commit()
+    session.refresh(rt)
+
+    return TaskIntentResponse(
+        status="recurring_scheduled",
+        task_id=rt.id,
+        scheduled_at_local=next_run_at.strftime("%Y-%m-%dT%H:%M:%S"),
+        scheduled_at_utc=next_run_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        command=resolved_command,
+        description=task.description,
+        action_name=action_name,
+        intent_version=normalized_intent_version,
+        source=source,
+        cwd=resolved_cwd,
+        env_keys=list(env.keys()) if env else None,
+        notify_on_complete=task.notify_on_complete,
+        max_retries=effective_max_retries,
+        retry_delay=effective_retry_delay,
+        warnings=[],
+        cron=task.cron,
+        next_run_at=next_run_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+
+
 @app.post("/api/tasks/intent", response_model=TaskIntentResponse)
 def create_task_from_intent(payload: TaskIntentEnvelope):
     session = SessionLocal()
@@ -868,6 +1031,11 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             errors.append("invalid_timezone")
 
         _raise_intent_validation(errors)
+
+        # --- Cron / recurring path ---
+        if payload.task.cron is not None:
+            return _handle_recurring_intent(payload, session, normalized_intent_version, tzinfo)
+
 
         warnings: list[str] = []
         resolved_command = payload.task.command or ""
@@ -1111,3 +1279,334 @@ def preview_task_intent(payload: TaskIntentEnvelope):
         notify_on_complete=payload.task.notify_on_complete,
         warnings=warnings,
     )
+
+
+# ---------------------------------------------------------------------------
+# Recurring task helpers
+# ---------------------------------------------------------------------------
+
+def _recurring_from_payload(
+    payload: RecurringTaskCreate | RecurringTaskUpdate,
+    session,
+    existing_id: int | None = None,
+) -> RecurringTask | None:
+    """Validate and build a RecurringTask ORM object. Returns None and raises on error."""
+    if not _validate_cron(payload.cron):
+        raise HTTPException(status_code=400, detail="cron_invalid")
+
+    try:
+        ZoneInfo(payload.timezone)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_timezone")
+
+    resolved_command = payload.command or ""
+    resolved_cwd = payload.cwd
+    env = payload.env
+    allowed_command_dirs = None
+    allowed_cwd_dirs = None
+
+    settings = _get_settings(session)
+
+    if payload.action_name:
+        action = session.execute(
+            select(Action).where(Action.name == payload.action_name)
+        ).scalar_one_or_none()
+        if action is None:
+            raise HTTPException(status_code=400, detail="unknown_action")
+        allowed_command_dirs = action.allowed_command_dirs or settings.allowed_command_dirs
+        allowed_cwd_dirs = action.allowed_cwd_dirs or settings.allowed_cwd_dirs
+        _validate_command(action.command, allowed_command_dirs)
+        resolved_command = action.command
+        if resolved_cwd is None:
+            resolved_cwd = action.default_cwd
+        allowed_env = action.allowed_env or []
+        if env:
+            if not allowed_env:
+                raise HTTPException(status_code=400, detail="env_not_allowed")
+            invalid_keys = sorted(set(env.keys()) - set(allowed_env))
+            if invalid_keys:
+                raise HTTPException(status_code=400, detail="env_key_not_allowed")
+    elif resolved_command:
+        allowed_command_dirs = settings.allowed_command_dirs
+        allowed_cwd_dirs = settings.allowed_cwd_dirs
+        _validate_command(resolved_command, allowed_command_dirs)
+        if env:
+            raise HTTPException(status_code=400, detail="env_requires_action")
+    else:
+        raise HTTPException(status_code=400, detail="command_or_action_required")
+
+    _validate_cwd(resolved_cwd, allowed_cwd_dirs)
+
+    # Name uniqueness check
+    query = select(RecurringTask).where(RecurringTask.name == payload.name)
+    if existing_id is not None:
+        from sqlalchemy import and_
+        query = select(RecurringTask).where(
+            RecurringTask.name == payload.name,
+            RecurringTask.id != existing_id,
+        )
+    name_conflict = session.execute(query).scalar_one_or_none()
+    if name_conflict:
+        raise HTTPException(status_code=400, detail="recurring_name_exists")
+
+    next_run_at = compute_initial_next_run(payload.cron, payload.timezone)
+
+    return RecurringTask(
+        name=payload.name,
+        description=payload.description,
+        cron=payload.cron,
+        timezone=payload.timezone,
+        action_name=payload.action_name,
+        command=payload.command,
+        cwd=resolved_cwd,
+        env_json=json.dumps(env) if env else None,
+        notify_on_complete=1 if payload.notify_on_complete else 0,
+        max_retries=max(0, payload.max_retries),
+        retry_delay=max(1, payload.retry_delay),
+        enabled=1 if payload.enabled else 0,
+        next_run_at=next_run_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# /api/recurring  CRUD endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/recurring", response_model=list[RecurringTaskRead])
+def list_recurring(db: Session = Depends(get_db)):
+    return db.execute(
+        select(RecurringTask).order_by(RecurringTask.name.asc())
+    ).scalars().all()
+
+
+@app.post("/api/recurring", response_model=RecurringTaskRead)
+def create_recurring(payload: RecurringTaskCreate, db: Session = Depends(get_db)):
+    rt = _recurring_from_payload(payload, db)
+    db.add(rt)
+    db.commit()
+    db.refresh(rt)
+    return rt
+
+
+@app.put("/api/recurring/{recurring_id}", response_model=RecurringTaskRead)
+def update_recurring(
+    recurring_id: int, payload: RecurringTaskUpdate, db: Session = Depends(get_db)
+):
+    rt = db.get(RecurringTask, recurring_id)
+    if rt is None:
+        raise HTTPException(status_code=404, detail="recurring_task_not_found")
+    updated = _recurring_from_payload(payload, db, existing_id=recurring_id)
+    # Copy fields onto existing row
+    rt.name = updated.name
+    rt.description = updated.description
+    rt.cron = updated.cron
+    rt.timezone = updated.timezone
+    rt.action_name = updated.action_name
+    rt.command = updated.command
+    rt.cwd = updated.cwd
+    rt.env_json = updated.env_json
+    rt.notify_on_complete = updated.notify_on_complete
+    rt.max_retries = updated.max_retries
+    rt.retry_delay = updated.retry_delay
+    rt.enabled = updated.enabled
+    rt.next_run_at = updated.next_run_at
+    db.commit()
+    db.refresh(rt)
+    return rt
+
+
+@app.delete("/api/recurring/{recurring_id}")
+def delete_recurring(recurring_id: int, db: Session = Depends(get_db)):
+    rt = db.get(RecurringTask, recurring_id)
+    if rt is None:
+        raise HTTPException(status_code=404, detail="recurring_task_not_found")
+    db.delete(rt)
+    db.commit()
+    return {"status": "deleted", "recurring_id": recurring_id}
+
+
+@app.post("/api/recurring/{recurring_id}/toggle")
+def toggle_recurring(recurring_id: int, db: Session = Depends(get_db)):
+    rt = db.get(RecurringTask, recurring_id)
+    if rt is None:
+        raise HTTPException(status_code=404, detail="recurring_task_not_found")
+    rt.enabled = 0 if rt.enabled else 1
+    if rt.enabled:
+        # Re-arm next_run_at from now
+        rt.next_run_at = compute_initial_next_run(rt.cron, rt.timezone)
+    db.commit()
+    return {"status": "enabled" if rt.enabled else "disabled", "recurring_id": recurring_id}
+
+
+# ---------------------------------------------------------------------------
+# /recurring  HTML routes
+# ---------------------------------------------------------------------------
+
+@app.get("/recurring", response_class=HTMLResponse)
+def recurring_dashboard(request: Request, db: Session = Depends(get_db)):
+    tasks = db.execute(
+        select(RecurringTask).order_by(RecurringTask.name.asc())
+    ).scalars().all()
+    return templates.TemplateResponse(
+        "recurring.html", {"request": request, "tasks": tasks}
+    )
+
+
+@app.get("/recurring/new", response_class=HTMLResponse)
+def recurring_new(request: Request, db: Session = Depends(get_db)):
+    actions = db.execute(select(Action).order_by(Action.name.asc())).scalars().all()
+    return templates.TemplateResponse(
+        "recurring_form.html",
+        {"request": request, "actions": actions, "form": {}, "editing": False},
+    )
+
+
+@app.post("/recurring/new")
+def recurring_create_form(
+    request: Request,
+    name: str = Form(...),
+    cron: str = Form(...),
+    timezone: str = Form("UTC"),
+    description: str | None = Form(None),
+    action_name: str | None = Form(None),
+    command: str | None = Form(None),
+    notify_on_complete: str | None = Form(None),
+    max_retries: int = Form(0),
+    retry_delay: int = Form(60),
+    enabled: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    form_data = {
+        "name": name, "cron": cron, "timezone": timezone,
+        "description": description or "", "action_name": action_name or "",
+        "command": command or "",
+        "notify_on_complete": notify_on_complete,
+        "max_retries": max_retries, "retry_delay": retry_delay,
+        "enabled": enabled,
+    }
+    actions = db.execute(select(Action).order_by(Action.name.asc())).scalars().all()
+    try:
+        payload = RecurringTaskCreate(
+            name=name,
+            description=description,
+            cron=cron,
+            timezone=timezone,
+            action_name=action_name or None,
+            command=command or None,
+            notify_on_complete=bool(notify_on_complete),
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+            enabled=bool(enabled),
+        )
+        rt = _recurring_from_payload(payload, db)
+        db.add(rt)
+        db.commit()
+    except HTTPException as exc:
+        return templates.TemplateResponse(
+            "recurring_form.html",
+            {"request": request, "actions": actions, "form": form_data,
+             "editing": False, "error": exc.detail},
+            status_code=400,
+        )
+    return RedirectResponse(url="/recurring", status_code=303)
+
+
+@app.get("/recurring/{recurring_id}/edit", response_class=HTMLResponse)
+def recurring_edit(recurring_id: int, request: Request, db: Session = Depends(get_db)):
+    rt = db.get(RecurringTask, recurring_id)
+    if rt is None:
+        raise HTTPException(status_code=404, detail="Recurring task not found")
+    actions = db.execute(select(Action).order_by(Action.name.asc())).scalars().all()
+    return templates.TemplateResponse(
+        "recurring_form.html",
+        {"request": request, "actions": actions, "form": rt, "editing": True,
+         "recurring_id": recurring_id},
+    )
+
+
+@app.post("/recurring/{recurring_id}/edit")
+def recurring_update_form(
+    request: Request,
+    recurring_id: int,
+    name: str = Form(...),
+    cron: str = Form(...),
+    timezone: str = Form("UTC"),
+    description: str | None = Form(None),
+    action_name: str | None = Form(None),
+    command: str | None = Form(None),
+    notify_on_complete: str | None = Form(None),
+    max_retries: int = Form(0),
+    retry_delay: int = Form(60),
+    enabled: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    rt = db.get(RecurringTask, recurring_id)
+    if rt is None:
+        raise HTTPException(status_code=404, detail="Recurring task not found")
+    form_data = {
+        "name": name, "cron": cron, "timezone": timezone,
+        "description": description or "", "action_name": action_name or "",
+        "command": command or "",
+        "notify_on_complete": notify_on_complete,
+        "max_retries": max_retries, "retry_delay": retry_delay,
+        "enabled": enabled,
+    }
+    actions = db.execute(select(Action).order_by(Action.name.asc())).scalars().all()
+    try:
+        payload = RecurringTaskUpdate(
+            name=name,
+            description=description,
+            cron=cron,
+            timezone=timezone,
+            action_name=action_name or None,
+            command=command or None,
+            notify_on_complete=bool(notify_on_complete),
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+            enabled=bool(enabled),
+        )
+        updated = _recurring_from_payload(payload, db, existing_id=recurring_id)
+        rt.name = updated.name
+        rt.description = updated.description
+        rt.cron = updated.cron
+        rt.timezone = updated.timezone
+        rt.action_name = updated.action_name
+        rt.command = updated.command
+        rt.cwd = updated.cwd
+        rt.env_json = updated.env_json
+        rt.notify_on_complete = updated.notify_on_complete
+        rt.max_retries = updated.max_retries
+        rt.retry_delay = updated.retry_delay
+        rt.enabled = updated.enabled
+        rt.next_run_at = updated.next_run_at
+        db.commit()
+    except HTTPException as exc:
+        return templates.TemplateResponse(
+            "recurring_form.html",
+            {"request": request, "actions": actions, "form": form_data,
+             "editing": True, "recurring_id": recurring_id, "error": exc.detail},
+            status_code=400,
+        )
+    return RedirectResponse(url="/recurring", status_code=303)
+
+
+@app.post("/recurring/{recurring_id}/delete")
+def recurring_delete_form(recurring_id: int, db: Session = Depends(get_db)):
+    rt = db.get(RecurringTask, recurring_id)
+    if rt is None:
+        raise HTTPException(status_code=404, detail="Recurring task not found")
+    db.delete(rt)
+    db.commit()
+    return RedirectResponse(url="/recurring", status_code=303)
+
+
+@app.post("/recurring/{recurring_id}/toggle")
+def recurring_toggle_form(recurring_id: int, db: Session = Depends(get_db)):
+    rt = db.get(RecurringTask, recurring_id)
+    if rt is None:
+        raise HTTPException(status_code=404, detail="Recurring task not found")
+    rt.enabled = 0 if rt.enabled else 1
+    if rt.enabled:
+        rt.next_run_at = compute_initial_next_run(rt.cron, rt.timezone)
+    db.commit()
+    return RedirectResponse(url="/recurring", status_code=303)

@@ -9,11 +9,16 @@ app.conf.beat_schedule = {
         'task': 'mage_scheduler.gpu_tasks.gpu_monitor',
         'schedule': 60.0,  # seconds
     },
+    'check-recurring-tasks-every-60-seconds': {
+        'task': 'tasks.recurring_task.check_recurring_tasks',
+        'schedule': 60.0,
+    },
 }
 
 # Import tasks modules to register decorated tasks
 import tasks.gpu_tasks
 import tasks.notification_task
+import tasks.recurring_task
 
 if __name__ == '__main__':
     app.start()

@@ -57,6 +57,7 @@ class TaskIntent(BaseModel):
     notify_on_complete: bool = False
     max_retries: int | None = None
     retry_delay: int | None = None
+    cron: str | None = None
 
 
 class TaskIntentEnvelope(BaseModel):
@@ -88,6 +89,60 @@ class TaskIntentResponse(BaseModel):
     retry_delay: int = 60
     warnings: list[str]
     errors: list[ErrorDetail] | None = None
+    cron: str | None = None
+    next_run_at: str | None = None
+
+
+class RecurringTaskCreate(BaseModel):
+    name: str
+    description: str | None = None
+    cron: str
+    timezone: str = "UTC"
+    action_name: str | None = None
+    command: str | None = None
+    cwd: str | None = None
+    env: dict[str, str] | None = None
+    notify_on_complete: bool = False
+    max_retries: int = 0
+    retry_delay: int = 60
+    enabled: bool = True
+
+
+class RecurringTaskUpdate(BaseModel):
+    name: str
+    description: str | None = None
+    cron: str
+    timezone: str = "UTC"
+    action_name: str | None = None
+    command: str | None = None
+    cwd: str | None = None
+    env: dict[str, str] | None = None
+    notify_on_complete: bool = False
+    max_retries: int = 0
+    retry_delay: int = 60
+    enabled: bool = True
+
+
+class RecurringTaskRead(BaseModel):
+    id: int
+    name: str
+    description: str | None = None
+    cron: str
+    timezone: str
+    action_name: str | None = None
+    command: str | None = None
+    cwd: str | None = None
+    env_keys: list[str] | None = None
+    notify_on_complete: bool = False
+    max_retries: int = 0
+    retry_delay: int = 60
+    enabled: bool = True
+    next_run_at: datetime | None = None
+    last_run_at: datetime | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class TaskCreate(BaseModel):
@@ -129,6 +184,7 @@ class TaskRead(BaseModel):
     max_retries: int = 0
     retry_delay: int = 60
     retry_count: int = 0
+    recurring_task_id: int | None = None
 
     class Config:
         from_attributes = True

@@ -52,7 +52,8 @@ Only valid for tasks with status `scheduled` or `running`. Returns `{"status": "
     },
     "notify_on_complete": false,
     "max_retries": 0,
-    "retry_delay": 60
+    "retry_delay": 60,
+    "cron": null
   },
   "meta": {
     "source": "mage-lab-llm",
@@ -61,10 +62,50 @@ Only valid for tasks with status `scheduled` or `running`. Returns `{"status": "
 }
 ```
 
+### Recurring task intent (cron)
+When `cron` is set, omit `run_at` and `run_in`:
+```json
+{
+  "intent_version": "v1",
+  "task": {
+    "description": "Weekly Monday backup",
+    "action_name": "backup_home",
+    "timezone": "America/Los_Angeles",
+    "cron": "0 9 * * 1",
+    "notify_on_complete": true
+  },
+  "meta": { "source": "mage-lab-llm" }
+}
+```
+
+Response:
+```json
+{
+  "status": "recurring_scheduled",
+  "task_id": 1,
+  "scheduled_at_local": "2026-02-28T09:00:00",
+  "scheduled_at_utc": "2026-02-28T17:00:00Z",
+  "command": "/usr/local/bin/backup_home.sh",
+  "description": "Weekly Monday backup",
+  "cron": "0 9 * * 1",
+  "next_run_at": "2026-02-28T17:00:00Z",
+  "warnings": []
+}
+```
+
+### Recurring task management
+```
+GET    /api/recurring              list all recurring tasks
+POST   /api/recurring              create recurring task
+PUT    /api/recurring/{id}         update recurring task (full replace)
+DELETE /api/recurring/{id}         delete recurring task
+POST   /api/recurring/{id}/toggle  enable / disable
+```
+
 ### Rules
 - Prefer `action_name` when possible. It maps to a user-defined Action.
 - Use `command` only if no Action exists; it must be an absolute executable path.
-- Provide either `run_at` (ISO datetime) or `run_in` (duration string) — not both.
+- Provide either `run_at` (ISO datetime) or `run_in` (duration string) — not both. Omit both when `cron` is set.
 - `run_in` accepts durations like `"30m"`, `"2h"`, `"1d"`, `"90s"`. Time is computed from now in UTC.
 - `timezone` must be an IANA timezone (e.g., `America/Los_Angeles`). Defaults to `"UTC"` if omitted; primarily affects how `scheduled_at_local` is displayed in the response.
 - `intent_version` accepts `v1`, `1`, or `1.0` and is normalized to `v1`.
@@ -74,6 +115,7 @@ Only valid for tasks with status `scheduled` or `running`. Returns `{"status": "
 - Set `notify_on_complete: true` to receive an automated message via the ask_assistant endpoint when the task finishes. The notification includes task ID, status, exit code, and truncated output.
 - `max_retries` (integer, default `0`) — number of automatic retry attempts on non-zero exit. Inherits from the action's policy; per-task value overrides.
 - `retry_delay` (integer, default `60`) — seconds to wait between retry attempts. Retry attempts increment `retry_count` on the task row and reschedule in place. Notification (if enabled) fires only after the final attempt.
+- `cron` (string, optional) — 5-field cron expression (e.g., `"0 9 * * 1"` for every Monday at 9am). When present, creates a **RecurringTask** instead of a one-off TaskRequest. `run_at` and `run_in` must be omitted. The `description` field becomes the unique recurring task name. Returns `status: "recurring_scheduled"` and includes `next_run_at`.
 
 ## Example preview response
 ```json

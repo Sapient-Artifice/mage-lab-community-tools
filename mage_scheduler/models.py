@@ -97,6 +97,40 @@ class TaskRequest(Base):
     max_retries = Column(Integer, default=0, nullable=False)
     retry_delay = Column(Integer, default=60, nullable=False)
     retry_count = Column(Integer, default=0, nullable=False)
+    recurring_task_id = Column(Integer, nullable=True)
+
+    @property
+    def env_keys(self) -> list[str] | None:
+        if not self.env_json:
+            return None
+        try:
+            data = json.loads(self.env_json)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(data, dict):
+            return list(data.keys())
+        return None
+
+
+class RecurringTask(Base):
+    __tablename__ = "recurring_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(Text, nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    cron = Column(Text, nullable=False)
+    timezone = Column(Text, nullable=False, default="UTC")
+    action_name = Column(Text, nullable=True)
+    command = Column(Text, nullable=True)
+    cwd = Column(Text, nullable=True)
+    env_json = Column(Text, nullable=True)
+    notify_on_complete = Column(Integer, default=0, nullable=False)
+    max_retries = Column(Integer, default=0, nullable=False)
+    retry_delay = Column(Integer, default=60, nullable=False)
+    enabled = Column(Integer, default=1, nullable=False)
+    next_run_at = Column(DateTime, nullable=True)
+    last_run_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     @property
     def env_keys(self) -> list[str] | None:

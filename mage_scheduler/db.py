@@ -28,7 +28,7 @@ Base = declarative_base()
 
 def init_db() -> None:
     # Import models to register them with SQLAlchemy
-    from models import TaskRequest, Action, Settings  # noqa: F401
+    from models import TaskRequest, Action, Settings, RecurringTask  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     _migrate_schema()
@@ -71,6 +71,7 @@ def _migrate_schema() -> None:
         _add_column_if_missing(connection, "task_requests", columns, "max_retries", "INTEGER NOT NULL DEFAULT 0")
         _add_column_if_missing(connection, "task_requests", columns, "retry_delay", "INTEGER NOT NULL DEFAULT 60")
         _add_column_if_missing(connection, "task_requests", columns, "retry_count", "INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(connection, "task_requests", columns, "recurring_task_id", "INTEGER")
 
         action_columns = {
             row[1] for row in connection.exec_driver_sql("PRAGMA table_info(actions)").fetchall()

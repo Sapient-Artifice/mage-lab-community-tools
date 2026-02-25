@@ -29,6 +29,9 @@ Provide safe, structured task scheduling using the Mage Scheduler service and su
 - `mage_scheduler_create_action(action_json)`
 - `mage_scheduler_update_action(action_id, action_json)`
 - `mage_scheduler_delete_action(action_id)`
+- `mage_scheduler_list_recurring()`
+- `mage_scheduler_toggle_recurring(recurring_id)`
+- `mage_scheduler_delete_recurring(recurring_id)`
 
 ## Workflow
 1) Confirm the scheduler service is running.
@@ -70,10 +73,40 @@ Rules:
 - `command` must be an absolute executable path.
 - `env` is only allowed with `action_name` and must be whitelisted by the action.
 - Commands and `cwd` must fall within allowed directories; check with `mage_scheduler_get_validation()`.
-- Use either `run_at` (datetime) or `run_in` (duration string) — not both.
+- Use either `run_at` (datetime) or `run_in` (duration string) — not both. Omit both when `cron` is set.
 - `timezone` defaults to `"UTC"` if omitted; required for correct `run_at` interpretation.
 - `max_retries` (default `0`) — number of automatic retry attempts on failure. Per-task override; inherits from action if not set.
 - `retry_delay` (default `60`) — seconds to wait between retry attempts.
+- `cron` — 5-field cron expression (e.g., `"0 9 * * 1"` = Monday 9am). Creates a **RecurringTask** instead of a one-off. `run_at`/`run_in` must be omitted. The `description` becomes the unique recurring task name. Response has `status: "recurring_scheduled"` and includes `next_run_at`.
+
+### cron — recurring tasks
+Use `cron` to create a task that fires on a schedule. Omit `run_at` and `run_in`.
+
+```json
+{
+  "intent_version": "v1",
+  "task": {
+    "description": "Weekly Monday backup",
+    "action_name": "backup_home",
+    "timezone": "America/Los_Angeles",
+    "cron": "0 9 * * 1",
+    "notify_on_complete": true
+  },
+  "meta": { "source": "mage-lab-llm" }
+}
+```
+
+The response contains `"status": "recurring_scheduled"` and `next_run_at`. The recurring task will automatically spawn a new `TaskRequest` each time it fires. Use `mage_scheduler_list_recurring()` to see all recurring tasks, and `mage_scheduler_toggle_recurring(id)` to enable/disable.
+
+**Common cron patterns:**
+
+| Cron | Meaning |
+|------|---------|
+| `"0 9 * * 1"` | Every Monday at 9am |
+| `"0 */6 * * *"` | Every 6 hours |
+| `"*/5 * * * *"` | Every 5 minutes |
+| `"0 0 * * *"` | Daily at midnight |
+| `"0 8 1 * *"` | 1st of each month at 8am |
 
 ### run_in — duration shorthand
 Instead of computing a future datetime, use `run_in` to express a delay from now:
