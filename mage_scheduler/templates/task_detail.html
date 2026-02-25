@@ -56,6 +56,13 @@
         <div>{{ task.status }}</div>
     </div>
 
+    {% if task.max_retries > 0 %}
+    <div class="box">
+        <strong>Retry</strong>
+        <div>Attempt {{ task.retry_count + 1 }} of {{ task.max_retries + 1 }} &mdash; {{ task.retry_count }} of {{ task.max_retries }} retries used (delay: {{ task.retry_delay }}s)</div>
+    </div>
+    {% endif %}
+
     <div class="box">
         <strong>Result</strong>
         <pre>{{ task.result or "(none)" }}</pre>

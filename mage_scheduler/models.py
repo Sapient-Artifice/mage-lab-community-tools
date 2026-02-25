@@ -18,6 +18,8 @@ class Action(Base):
     allowed_env_json = Column(Text, nullable=True)
     allowed_command_dirs_json = Column(Text, nullable=True)
     allowed_cwd_dirs_json = Column(Text, nullable=True)
+    max_retries = Column(Integer, default=0, nullable=False)
+    retry_delay = Column(Integer, default=60, nullable=False)
 
     @property
     def allowed_env(self) -> list[str] | None:
@@ -92,6 +94,9 @@ class TaskRequest(Base):
     cwd = Column(Text, nullable=True)
     env_json = Column(Text, nullable=True)
     notify_on_complete = Column(Integer, default=0, nullable=False)
+    max_retries = Column(Integer, default=0, nullable=False)
+    retry_delay = Column(Integer, default=60, nullable=False)
+    retry_count = Column(Integer, default=0, nullable=False)
 
     @property
     def env_keys(self) -> list[str] | None:

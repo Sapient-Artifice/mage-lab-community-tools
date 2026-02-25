@@ -512,6 +512,8 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
     task.cwd = payload.cwd
     task.env_json = json.dumps(payload.env) if payload.env else None
     task.notify_on_complete = 1 if payload.notify_on_complete else 0
+    task.max_retries = max(0, payload.max_retries)
+    task.retry_delay = max(1, payload.retry_delay)
     db.commit()
     db.refresh(task)
     return task
@@ -546,6 +548,8 @@ def run_task_now(payload: TaskRunNow, db: Session = Depends(get_db)):
     task.cwd = payload.cwd
     task.env_json = json.dumps(payload.env) if payload.env else None
     task.notify_on_complete = 1 if payload.notify_on_complete else 0
+    task.max_retries = max(0, payload.max_retries)
+    task.retry_delay = max(1, payload.retry_delay)
     db.commit()
     db.refresh(task)
     return task
@@ -617,6 +621,8 @@ def actions_create(
     allowed_env: str | None = Form(None),
     allowed_command_dirs: str | None = Form(None),
     allowed_cwd_dirs: str | None = Form(None),
+    max_retries: int = Form(0),
+    retry_delay: int = Form(60),
 ):
     allowed_command_dirs_list = _parse_allowed_dirs(allowed_command_dirs)
     allowed_cwd_dirs_list = _parse_allowed_dirs(allowed_cwd_dirs)
@@ -668,6 +674,8 @@ def actions_create(
                 json.dumps(allowed_command_dirs_list) if allowed_command_dirs_list else None
             ),
             allowed_cwd_dirs_json=json.dumps(allowed_cwd_dirs_list) if allowed_cwd_dirs_list else None,
+            max_retries=max(0, max_retries),
+            retry_delay=max(1, retry_delay),
         )
         session.add(action)
         session.commit()
@@ -705,6 +713,8 @@ def actions_update(
     allowed_env: str | None = Form(None),
     allowed_command_dirs: str | None = Form(None),
     allowed_cwd_dirs: str | None = Form(None),
+    max_retries: int = Form(0),
+    retry_delay: int = Form(60),
 ):
     allowed_command_dirs_list = _parse_allowed_dirs(allowed_command_dirs)
     allowed_cwd_dirs_list = _parse_allowed_dirs(allowed_cwd_dirs)
@@ -762,6 +772,8 @@ def actions_update(
         action.allowed_cwd_dirs_json = (
             json.dumps(allowed_cwd_dirs_list) if allowed_cwd_dirs_list else None
         )
+        action.max_retries = max(0, max_retries)
+        action.retry_delay = max(1, retry_delay)
         session.commit()
     return RedirectResponse(url="/actions", status_code=303)
 
@@ -790,6 +802,8 @@ def create_action(payload: ActionCreate, db: Session = Depends(get_db)):
         allowed_cwd_dirs_json=(
             json.dumps(payload.allowed_cwd_dirs) if payload.allowed_cwd_dirs else None
         ),
+        max_retries=max(0, payload.max_retries),
+        retry_delay=max(1, payload.retry_delay),
     )
     db.add(action)
     db.commit()
@@ -820,6 +834,8 @@ def update_action(action_id: int, payload: ActionUpdate, db: Session = Depends(g
     action.allowed_cwd_dirs_json = (
         json.dumps(payload.allowed_cwd_dirs) if payload.allowed_cwd_dirs else None
     )
+    action.max_retries = max(0, payload.max_retries)
+    action.retry_delay = max(1, payload.retry_delay)
     db.commit()
     db.refresh(action)
     return action
@@ -861,6 +877,8 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
         env = payload.task.env
         allowed_command_dirs = None
         allowed_cwd_dirs = None
+        effective_max_retries = 0
+        effective_retry_delay = 60
 
         def _blocked(error_detail: str, command_value: str) -> TaskIntentResponse:
             blocked = _create_blocked_task(
@@ -900,6 +918,8 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             action_id = action.id
             if resolved_cwd is None:
                 resolved_cwd = action.default_cwd
+            effective_max_retries = action.max_retries or 0
+            effective_retry_delay = action.retry_delay or 60
             allowed_env = action.allowed_env or []
             if env:
                 if not allowed_env:
@@ -953,6 +973,12 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
         source = None
         if payload.meta and isinstance(payload.meta, dict):
             source = payload.meta.get("source")
+        # Task-level intent overrides action defaults
+        if payload.task.max_retries is not None:
+            effective_max_retries = max(0, payload.task.max_retries)
+        if payload.task.retry_delay is not None:
+            effective_retry_delay = max(1, payload.task.retry_delay)
+
         task = session.get(TaskRequest, task_id)
         if task is not None:
             task.intent_version = normalized_intent_version
@@ -963,6 +989,8 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             task.cwd = resolved_cwd
             task.env_json = json.dumps(env) if env else None
             task.notify_on_complete = 1 if payload.task.notify_on_complete else 0
+            task.max_retries = effective_max_retries
+            task.retry_delay = effective_retry_delay
             session.commit()
 
         return TaskIntentResponse(
@@ -978,6 +1006,8 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             cwd=resolved_cwd,
             env_keys=list(env.keys()) if env else None,
             notify_on_complete=payload.task.notify_on_complete,
+            max_retries=effective_max_retries,
+            retry_delay=effective_retry_delay,
             warnings=warnings,
         )
     finally:

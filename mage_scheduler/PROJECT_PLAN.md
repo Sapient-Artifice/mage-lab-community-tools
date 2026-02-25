@@ -28,9 +28,9 @@ Feedback loop and UX:
 - Task cancellation (`POST /api/tasks/{id}/cancel`)
 - Schema auto-migration on startup
 
-## Phase 4 (next)
+## Phase 4 (in progress)
 Resilience and workflow:
-- Retry policy on actions (max_retries, retry_delay)
+- Retry policy on actions (max_retries, retry_delay) ✓
 - Task dependencies (`depends_on: [task_id]`)
 - Recurrence / cron expressions
 - Approval gate (`require_approval` on actions)

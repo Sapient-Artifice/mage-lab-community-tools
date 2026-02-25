@@ -4,23 +4,6 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
-class TaskCreate(BaseModel):
-    command: str
-    run_at: datetime
-    description: str | None = None
-    cwd: str | None = None
-    env: dict[str, str] | None = None
-    notify_on_complete: bool = False
-
-
-class TaskRunNow(BaseModel):
-    command: str
-    description: str | None = None
-    cwd: str | None = None
-    env: dict[str, str] | None = None
-    notify_on_complete: bool = False
-
-
 class ActionCreate(BaseModel):
     name: str
     description: str | None = None
@@ -29,6 +12,8 @@ class ActionCreate(BaseModel):
     allowed_env: list[str] | None = None
     allowed_command_dirs: list[str] | None = None
     allowed_cwd_dirs: list[str] | None = None
+    max_retries: int = 0
+    retry_delay: int = 60
 
 
 class ActionRead(BaseModel):
@@ -41,6 +26,8 @@ class ActionRead(BaseModel):
     allowed_env: list[str] | None = None
     allowed_command_dirs: list[str] | None = None
     allowed_cwd_dirs: list[str] | None = None
+    max_retries: int = 0
+    retry_delay: int = 60
 
     class Config:
         from_attributes = True
@@ -54,6 +41,8 @@ class ActionUpdate(BaseModel):
     allowed_env: list[str] | None = None
     allowed_command_dirs: list[str] | None = None
     allowed_cwd_dirs: list[str] | None = None
+    max_retries: int = 0
+    retry_delay: int = 60
 
 
 class TaskIntent(BaseModel):
@@ -66,6 +55,8 @@ class TaskIntent(BaseModel):
     cwd: str | None = None
     env: dict[str, str] | None = None
     notify_on_complete: bool = False
+    max_retries: int | None = None
+    retry_delay: int | None = None
 
 
 class TaskIntentEnvelope(BaseModel):
@@ -93,8 +84,31 @@ class TaskIntentResponse(BaseModel):
     cwd: str | None = None
     env_keys: list[str] | None = None
     notify_on_complete: bool = False
+    max_retries: int = 0
+    retry_delay: int = 60
     warnings: list[str]
     errors: list[ErrorDetail] | None = None
+
+
+class TaskCreate(BaseModel):
+    command: str
+    run_at: datetime
+    description: str | None = None
+    cwd: str | None = None
+    env: dict[str, str] | None = None
+    notify_on_complete: bool = False
+    max_retries: int = 0
+    retry_delay: int = 60
+
+
+class TaskRunNow(BaseModel):
+    command: str
+    description: str | None = None
+    cwd: str | None = None
+    env: dict[str, str] | None = None
+    notify_on_complete: bool = False
+    max_retries: int = 0
+    retry_delay: int = 60
 
 
 class TaskRead(BaseModel):
@@ -112,6 +126,9 @@ class TaskRead(BaseModel):
     cwd: str | None = None
     env_keys: list[str] | None = None
     notify_on_complete: bool = False
+    max_retries: int = 0
+    retry_delay: int = 60
+    retry_count: int = 0
 
     class Config:
         from_attributes = True

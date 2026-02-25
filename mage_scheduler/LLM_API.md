@@ -50,7 +50,9 @@ Only valid for tasks with status `scheduled` or `running`. Returns `{"status": "
     "env": {
       "PROJECT_ID": "example"
     },
-    "notify_on_complete": false
+    "notify_on_complete": false,
+    "max_retries": 0,
+    "retry_delay": 60
   },
   "meta": {
     "source": "mage-lab-llm",
@@ -70,6 +72,8 @@ Only valid for tasks with status `scheduled` or `running`. Returns `{"status": "
 - `cwd` must be an absolute path when provided.
 - Commands and `cwd` must fall under the allowed directory settings (global or action-specific).
 - Set `notify_on_complete: true` to receive an automated message via the ask_assistant endpoint when the task finishes. The notification includes task ID, status, exit code, and truncated output.
+- `max_retries` (integer, default `0`) — number of automatic retry attempts on non-zero exit. Inherits from the action's policy; per-task value overrides.
+- `retry_delay` (integer, default `60`) — seconds to wait between retry attempts. Retry attempts increment `retry_count` on the task row and reschedule in place. Notification (if enabled) fires only after the final attempt.
 
 ## Example preview response
 ```json

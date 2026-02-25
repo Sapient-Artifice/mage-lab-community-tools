@@ -68,6 +68,9 @@ def _migrate_schema() -> None:
         _add_column_if_missing(connection, "task_requests", columns, "cwd", "TEXT")
         _add_column_if_missing(connection, "task_requests", columns, "env_json", "TEXT")
         _add_column_if_missing(connection, "task_requests", columns, "notify_on_complete", "INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(connection, "task_requests", columns, "max_retries", "INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(connection, "task_requests", columns, "retry_delay", "INTEGER NOT NULL DEFAULT 60")
+        _add_column_if_missing(connection, "task_requests", columns, "retry_count", "INTEGER NOT NULL DEFAULT 0")
 
         action_columns = {
             row[1] for row in connection.exec_driver_sql("PRAGMA table_info(actions)").fetchall()
@@ -77,6 +80,8 @@ def _migrate_schema() -> None:
             _add_column_if_missing(connection, "actions", action_columns, "allowed_env_json", "TEXT")
             _add_column_if_missing(connection, "actions", action_columns, "allowed_command_dirs_json", "TEXT")
             _add_column_if_missing(connection, "actions", action_columns, "allowed_cwd_dirs_json", "TEXT")
+            _add_column_if_missing(connection, "actions", action_columns, "max_retries", "INTEGER NOT NULL DEFAULT 0")
+            _add_column_if_missing(connection, "actions", action_columns, "retry_delay", "INTEGER NOT NULL DEFAULT 60")
 
         settings_columns = {
             row[1] for row in connection.exec_driver_sql("PRAGMA table_info(settings)").fetchall()

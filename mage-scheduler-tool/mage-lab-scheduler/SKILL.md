@@ -53,7 +53,9 @@ Use this structure for scheduling:
     "timezone": "America/Los_Angeles",
     "cwd": "/path/to/working/dir",
     "env": {"KEY": "VALUE"},
-    "notify_on_complete": false
+    "notify_on_complete": false,
+    "max_retries": 0,
+    "retry_delay": 60
   },
   "meta": {
     "source": "mage-lab-llm",
@@ -70,6 +72,8 @@ Rules:
 - Commands and `cwd` must fall within allowed directories; check with `mage_scheduler_get_validation()`.
 - Use either `run_at` (datetime) or `run_in` (duration string) — not both.
 - `timezone` defaults to `"UTC"` if omitted; required for correct `run_at` interpretation.
+- `max_retries` (default `0`) — number of automatic retry attempts on failure. Per-task override; inherits from action if not set.
+- `retry_delay` (default `60`) — seconds to wait between retry attempts.
 
 ### run_in — duration shorthand
 Instead of computing a future datetime, use `run_in` to express a delay from now:
@@ -119,9 +123,13 @@ Rules:
   "default_cwd": "/usr/local/bin",
   "allowed_env": ["PROJECT_ID"],
   "allowed_command_dirs": ["/usr/local/bin"],
-  "allowed_cwd_dirs": ["/usr/local/bin"]
+  "allowed_cwd_dirs": ["/usr/local/bin"],
+  "max_retries": 3,
+  "retry_delay": 120
 }
 ```
+
+`max_retries` and `retry_delay` set the default retry policy for all tasks using this action. Per-task intent values override these defaults.
 
 ## Error Handling
 - If a request is blocked, the task will be created with `status: "blocked"` and `error` set to the reason.

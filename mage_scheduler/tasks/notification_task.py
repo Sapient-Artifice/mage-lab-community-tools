@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from tasks.celery_app import app
 from db import SessionLocal, init_db
 from models import TaskRequest
@@ -94,9 +94,32 @@ def run_command_at(task_request_id: int, command: str):
     with SessionLocal() as session:
         task_request = session.get(TaskRequest, task_request_id)
         if task_request is not None:
-            task_request.status = "success" if result.returncode == 0 else "failed"
+            max_retries = task_request.max_retries or 0
+            retry_delay_secs = task_request.retry_delay or 60
+            retry_count = task_request.retry_count or 0
+
             task_request.result = result.stdout.strip() if result.stdout else None
             task_request.error = result.stderr.strip() if result.stderr else None
+
+            if result.returncode != 0 and retry_count < max_retries:
+                task_request.retry_count = retry_count + 1
+                task_request.status = "scheduled"
+                session.commit()
+
+                next_eta = datetime.now(timezone.utc) + timedelta(seconds=retry_delay_secs)
+                new_celery_task = run_command_at.apply_async(
+                    args=[task_request_id, command],
+                    eta=next_eta,
+                )
+                task_request.celery_task_id = new_celery_task.id
+                session.commit()
+                return {
+                    "retrying": True,
+                    "attempt": retry_count + 1,
+                    "max_retries": max_retries,
+                }
+
+            task_request.status = "success" if result.returncode == 0 else "failed"
             session.commit()
 
             if notify:
