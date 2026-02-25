@@ -112,6 +112,14 @@ class TaskRequest(Base):
         return None
 
 
+class TaskDependency(Base):
+    __tablename__ = "task_dependencies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, nullable=False, index=True)
+    depends_on_task_id = Column(Integer, nullable=False, index=True)
+
+
 class RecurringTask(Base):
     __tablename__ = "recurring_tasks"
 

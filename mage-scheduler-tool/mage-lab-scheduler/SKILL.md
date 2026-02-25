@@ -78,6 +78,10 @@ Rules:
 - `max_retries` (default `0`) — number of automatic retry attempts on failure. Per-task override; inherits from action if not set.
 - `retry_delay` (default `60`) — seconds to wait between retry attempts.
 - `cron` — 5-field cron expression (e.g., `"0 9 * * 1"` = Monday 9am). Creates a **RecurringTask** instead of a one-off. `run_at`/`run_in` must be omitted. The `description` becomes the unique recurring task name. Response has `status: "recurring_scheduled"` and includes `next_run_at`.
+- `depends_on` — list of `task_id` integers that must complete successfully before this task runs. Not compatible with `cron`. Three scheduling outcomes:
+  - All deps succeeded → task is scheduled immediately (`status: "scheduled"`).
+  - Any dep already failed/cancelled → task is created as `failed` immediately (`warnings: ["dependency_failed"]`).
+  - At least one dep still in-flight → task is created as `waiting` (`status: "waiting"`); auto-scheduled when all deps succeed, or failed if any dep fails/cancels.
 
 ### cron — recurring tasks
 Use `cron` to create a task that fires on a schedule. Omit `run_at` and `run_in`.
@@ -129,7 +133,10 @@ Set `"notify_on_complete": true` to receive an automated notification when the t
 This closes the feedback loop — you will be informed of results without polling. Use it for any task where the outcome matters to the user or to you.
 
 ## Cancelling Tasks
-Use `mage_scheduler_cancel_task(task_id)` to cancel a task that is still `scheduled` or currently `running`. Cancelled tasks cannot be un-cancelled; create a new task if needed.
+Use `mage_scheduler_cancel_task(task_id)` to cancel a task that is still `scheduled`, `running`, or `waiting`. Cancelled tasks cannot be un-cancelled; create a new task if needed. Cancelling a task immediately fails all waiting tasks that depend on it.
+
+## Task Dependencies
+Use `depends_on` to chain tasks. After scheduling, inspect a task's dependency graph with `GET /api/tasks/{task_id}/dependencies`, which returns `{"depends_on": [...], "blocking": [...]}`. The `blocking` list shows currently-waiting tasks held by this task.
 
 ## Run-Now Schema
 Use this structure for immediate execution:

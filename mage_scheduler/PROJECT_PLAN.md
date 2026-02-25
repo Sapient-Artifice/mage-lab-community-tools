@@ -32,7 +32,7 @@ Feedback loop and UX:
 Resilience and workflow:
 - Retry policy on actions (max_retries, retry_delay) ✓
 - Recurrence / cron expressions ✓
-- Task dependencies (`depends_on: [task_id]`)
+- Task dependencies (`depends_on: [task_id]`) ✓
 - Approval gate (`require_approval` on actions)
 - Result retention / auto-cleanup of old terminal tasks
 - Task stats endpoint (`GET /api/tasks/stats`)

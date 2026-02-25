@@ -28,7 +28,7 @@ Base = declarative_base()
 
 def init_db() -> None:
     # Import models to register them with SQLAlchemy
-    from models import TaskRequest, Action, Settings, RecurringTask  # noqa: F401
+    from models import TaskRequest, Action, Settings, RecurringTask, TaskDependency  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     _migrate_schema()

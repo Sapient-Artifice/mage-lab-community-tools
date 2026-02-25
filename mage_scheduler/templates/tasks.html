@@ -78,6 +78,29 @@
         {% endfor %}
         </tbody>
     </table>
+    <h2>Waiting Tasks</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Description</th>
+                <th>Run At</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for task in waiting_tasks %}
+            <tr>
+                <td><a href="/tasks/{{ task.id }}">{{ task.id }}</a></td>
+                <td>{{ task.description }}</td>
+                <td>{{ task.run_at | local_time }}</td>
+                <td>{{ task.created_at | local_time }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4">No waiting tasks.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
     <h2>Recurring Tasks <a href="/recurring/new" style="font-size: 0.75em; font-weight: normal;">+ new</a></h2>
     <table>
         <thead>

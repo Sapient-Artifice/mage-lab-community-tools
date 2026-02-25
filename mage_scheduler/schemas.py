@@ -58,6 +58,7 @@ class TaskIntent(BaseModel):
     max_retries: int | None = None
     retry_delay: int | None = None
     cron: str | None = None
+    depends_on: list[int] | None = None
 
 
 class TaskIntentEnvelope(BaseModel):
@@ -91,6 +92,7 @@ class TaskIntentResponse(BaseModel):
     errors: list[ErrorDetail] | None = None
     cron: str | None = None
     next_run_at: str | None = None
+    depends_on: list[int] | None = None
 
 
 class RecurringTaskCreate(BaseModel):
@@ -185,6 +187,16 @@ class TaskRead(BaseModel):
     retry_delay: int = 60
     retry_count: int = 0
     recurring_task_id: int | None = None
+    depends_on: list[int] | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class TaskDependencyRead(BaseModel):
+    task_id: int
+    depends_on: list[int]
+    blocking: list[int]
 
     class Config:
         from_attributes = True

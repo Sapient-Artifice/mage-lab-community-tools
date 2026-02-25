@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from croniter import croniter
 
 from db import SessionLocal, init_db
-from models import Action, RecurringTask, Settings, TaskRequest
+from models import Action, RecurringTask, Settings, TaskDependency, TaskRequest
 from schemas import (
     ActionCreate,
     ActionRead,
@@ -28,6 +28,7 @@ from schemas import (
     RecurringTaskRead,
     RecurringTaskUpdate,
     TaskCreate,
+    TaskDependencyRead,
     TaskRead,
     TaskIntentEnvelope,
     TaskIntentResponse,
@@ -71,6 +72,9 @@ INTENT_ERROR_MESSAGES = {
     "cron_and_run_at_exclusive": "cron and run_at/run_in are mutually exclusive.",
     "recurring_name_required": "description is used as the recurring task name and must be unique.",
     "recurring_name_exists": "A recurring task with this name already exists.",
+    "depends_on_invalid": "depends_on contains invalid task IDs.",
+    "depends_on_already_failed": "One or more dependencies have already failed or been cancelled.",
+    "depends_on_cron_unsupported": "depends_on is not supported for recurring (cron) tasks.",
 }
 INTENT_ERROR_HINTS = {
     "unsupported_intent_version": "intent_version must be 'v1' (aliases: '1', '1.0').",
@@ -95,6 +99,9 @@ INTENT_ERROR_HINTS = {
     "cron_and_run_at_exclusive": "Remove run_at/run_in when using cron.",
     "recurring_name_required": "Provide a unique description to name the recurring task.",
     "recurring_name_exists": "Choose a different description/name.",
+    "depends_on_invalid": "Each ID in depends_on must be an existing task_id integer.",
+    "depends_on_already_failed": "Check dependency task statuses before scheduling.",
+    "depends_on_cron_unsupported": "Recurring tasks run indefinitely; dependency semantics do not apply.",
 }
 
 
@@ -274,6 +281,62 @@ def _validate_cron(expr: str) -> bool:
     return croniter.is_valid(expr)
 
 
+_DEP_TERMINAL_BAD = {"failed", "cancelled", "blocked"}
+_DEP_TERMINAL_GOOD = {"success"}
+
+
+def _validate_depends_on(
+    session: Session,
+    dep_ids: list[int],
+) -> tuple[list[str], str]:
+    """Validate dependency IDs and determine the scheduling outcome.
+
+    Returns (errors, outcome) where outcome is one of:
+      "immediate_schedule" — all deps succeeded (or list is empty)
+      "waiting"            — at least one dep still in-flight
+      "immediate_fail"     — at least one dep already failed/cancelled/blocked
+    """
+    if not dep_ids:
+        return [], "immediate_schedule"
+
+    dep_tasks = session.execute(
+        select(TaskRequest).where(TaskRequest.id.in_(dep_ids))
+    ).scalars().all()
+    found_ids = {t.id for t in dep_tasks}
+    missing = [i for i in dep_ids if i not in found_ids]
+    if missing:
+        return ["depends_on_invalid"], "immediate_fail"
+
+    status_map = {t.id: t.status for t in dep_tasks}
+
+    if any(status_map[i] in _DEP_TERMINAL_BAD for i in dep_ids):
+        return [], "immediate_fail"
+
+    if all(status_map[i] in _DEP_TERMINAL_GOOD for i in dep_ids):
+        return [], "immediate_schedule"
+
+    return [], "waiting"
+
+
+def _cascade_fail_dependents(db: Session, task_id: int, reason: str) -> None:
+    """Mark all waiting tasks that depend on task_id as failed."""
+    dep_rows = db.execute(
+        select(TaskDependency).where(TaskDependency.depends_on_task_id == task_id)
+    ).scalars().all()
+    candidate_ids = [r.task_id for r in dep_rows]
+    if not candidate_ids:
+        return
+    waiting = db.execute(
+        select(TaskRequest).where(
+            TaskRequest.id.in_(candidate_ids),
+            TaskRequest.status == "waiting",
+        )
+    ).scalars().all()
+    for wt in waiting:
+        wt.status = "failed"
+        wt.error = reason
+
+
 def _validate_dirs_list(dirs_list: list[str] | None, error_code: str) -> None:
     if not dirs_list:
         return
@@ -330,6 +393,12 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         .order_by(TaskRequest.created_at.desc())
         .limit(5)
     ).scalars().all()
+    waiting_tasks = db.execute(
+        select(TaskRequest)
+        .where(TaskRequest.status == "waiting")
+        .order_by(TaskRequest.created_at.desc())
+        .limit(10)
+    ).scalars().all()
     recurring_tasks = db.execute(
         select(RecurringTask).order_by(RecurringTask.name.asc())
     ).scalars().all()
@@ -341,6 +410,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "actions": actions,
             "recent_results": recent_results,
             "blocked_tasks": blocked_tasks,
+            "waiting_tasks": waiting_tasks,
             "recurring_tasks": recurring_tasks,
         },
     )
@@ -423,7 +493,7 @@ def cancel_task(task_id: int, db: Session = Depends(get_db)):
     task = db.get(TaskRequest, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    if task.status not in ("scheduled", "running"):
+    if task.status not in ("scheduled", "running", "waiting"):
         raise HTTPException(
             status_code=400,
             detail=f"Cannot cancel task with status '{task.status}'",
@@ -431,6 +501,8 @@ def cancel_task(task_id: int, db: Session = Depends(get_db)):
     if task.celery_task_id:
         AsyncResult(task.celery_task_id, app=celery_app).revoke(terminate=True)
     task.status = "cancelled"
+    db.commit()
+    _cascade_fail_dependents(db, task_id, f"Dependency task {task_id} failed or was cancelled.")
     db.commit()
     return {"status": "cancelled", "task_id": task_id}
 
@@ -467,6 +539,35 @@ def get_task(task_id: int, db: Session = Depends(get_db)):
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+@app.get("/api/tasks/{task_id}/dependencies", response_model=TaskDependencyRead)
+def get_task_dependencies(task_id: int, db: Session = Depends(get_db)):
+    task = db.get(TaskRequest, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    upstream = db.execute(
+        select(TaskDependency).where(TaskDependency.task_id == task_id)
+    ).scalars().all()
+    downstream = db.execute(
+        select(TaskDependency).where(TaskDependency.depends_on_task_id == task_id)
+    ).scalars().all()
+    downstream_ids = [r.task_id for r in downstream]
+    if downstream_ids:
+        blocking_tasks = db.execute(
+            select(TaskRequest).where(
+                TaskRequest.id.in_(downstream_ids),
+                TaskRequest.status == "waiting",
+            )
+        ).scalars().all()
+        blocking_ids = [t.id for t in blocking_tasks]
+    else:
+        blocking_ids = []
+    return TaskDependencyRead(
+        task_id=task_id,
+        depends_on=[r.depends_on_task_id for r in upstream],
+        blocking=blocking_ids,
+    )
 
 
 @app.get("/api/validation")
@@ -878,6 +979,10 @@ def _handle_recurring_intent(payload, session, normalized_intent_version, tzinfo
     task = payload.task
     errors: list[str] = []
 
+    # depends_on not supported for recurring tasks
+    if task.depends_on:
+        errors.append("depends_on_cron_unsupported")
+
     # cron and run_at/run_in are mutually exclusive
     if task.run_at is not None or task.run_in is not None:
         errors.append("cron_and_run_at_exclusive")
@@ -1130,14 +1235,6 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
         except HTTPException as exc:
             return _blocked(str(exc.detail), resolved_command)
 
-        manager = TaskManager()
-        task_id = manager.schedule_command(
-            resolved_command,
-            schedule_run_at,
-            cwd=resolved_cwd,
-            env=env,
-        )
-
         source = None
         if payload.meta and isinstance(payload.meta, dict):
             source = payload.meta.get("source")
@@ -1146,6 +1243,105 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             effective_max_retries = max(0, payload.task.max_retries)
         if payload.task.retry_delay is not None:
             effective_retry_delay = max(1, payload.task.retry_delay)
+
+        # --- Dependency branching ---
+        unique_dep_ids = list(dict.fromkeys(payload.task.depends_on or []))
+        dep_errors, dep_outcome = _validate_depends_on(session, unique_dep_ids)
+        if dep_errors:
+            return _blocked(dep_errors[0], resolved_command)
+
+        if dep_outcome == "immediate_fail":
+            # All dep IDs exist but at least one already failed/cancelled
+            task_req = TaskRequest(
+                description=payload.task.description,
+                command=resolved_command,
+                run_at=schedule_run_at.replace(tzinfo=None) if hasattr(schedule_run_at, "tzinfo") else schedule_run_at,
+                status="failed",
+                error="One or more dependencies have already failed or been cancelled.",
+                intent_version=normalized_intent_version,
+                source=source,
+                action_id=action_id,
+                action_name=action_name,
+                cwd=resolved_cwd,
+                env_json=json.dumps(env) if env else None,
+                notify_on_complete=1 if payload.task.notify_on_complete else 0,
+                max_retries=effective_max_retries,
+                retry_delay=effective_retry_delay,
+            )
+            session.add(task_req)
+            session.flush()
+            for dep_id in unique_dep_ids:
+                session.add(TaskDependency(task_id=task_req.id, depends_on_task_id=dep_id))
+            session.commit()
+            return TaskIntentResponse(
+                status="failed",
+                task_id=task_req.id,
+                scheduled_at_local=run_at_local.strftime("%Y-%m-%dT%H:%M:%S"),
+                scheduled_at_utc=run_at_local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                command=resolved_command,
+                description=payload.task.description,
+                action_name=action_name,
+                intent_version=normalized_intent_version,
+                source=source,
+                cwd=resolved_cwd,
+                env_keys=list(env.keys()) if env else None,
+                notify_on_complete=payload.task.notify_on_complete,
+                max_retries=effective_max_retries,
+                retry_delay=effective_retry_delay,
+                warnings=["dependency_failed"],
+                errors=[_intent_error("depends_on_already_failed")],
+                depends_on=unique_dep_ids,
+            )
+
+        if dep_outcome == "waiting":
+            run_at_naive = schedule_run_at.replace(tzinfo=None) if hasattr(schedule_run_at, "tzinfo") and schedule_run_at.tzinfo is not None else schedule_run_at
+            task_req = TaskRequest(
+                description=payload.task.description,
+                command=resolved_command,
+                run_at=run_at_naive,
+                status="waiting",
+                intent_version=normalized_intent_version,
+                source=source,
+                action_id=action_id,
+                action_name=action_name,
+                cwd=resolved_cwd,
+                env_json=json.dumps(env) if env else None,
+                notify_on_complete=1 if payload.task.notify_on_complete else 0,
+                max_retries=effective_max_retries,
+                retry_delay=effective_retry_delay,
+            )
+            session.add(task_req)
+            session.flush()
+            for dep_id in unique_dep_ids:
+                session.add(TaskDependency(task_id=task_req.id, depends_on_task_id=dep_id))
+            session.commit()
+            return TaskIntentResponse(
+                status="waiting",
+                task_id=task_req.id,
+                scheduled_at_local=run_at_local.strftime("%Y-%m-%dT%H:%M:%S"),
+                scheduled_at_utc=run_at_local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                command=resolved_command,
+                description=payload.task.description,
+                action_name=action_name,
+                intent_version=normalized_intent_version,
+                source=source,
+                cwd=resolved_cwd,
+                env_keys=list(env.keys()) if env else None,
+                notify_on_complete=payload.task.notify_on_complete,
+                max_retries=effective_max_retries,
+                retry_delay=effective_retry_delay,
+                warnings=[],
+                depends_on=unique_dep_ids,
+            )
+
+        # dep_outcome == "immediate_schedule" — fall through to normal scheduling
+        manager = TaskManager()
+        task_id = manager.schedule_command(
+            resolved_command,
+            schedule_run_at,
+            cwd=resolved_cwd,
+            env=env,
+        )
 
         task = session.get(TaskRequest, task_id)
         if task is not None:
@@ -1159,6 +1355,9 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             task.notify_on_complete = 1 if payload.task.notify_on_complete else 0
             task.max_retries = effective_max_retries
             task.retry_delay = effective_retry_delay
+            session.flush()
+            for dep_id in unique_dep_ids:
+                session.add(TaskDependency(task_id=task_id, depends_on_task_id=dep_id))
             session.commit()
 
         return TaskIntentResponse(
@@ -1177,6 +1376,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             max_retries=effective_max_retries,
             retry_delay=effective_retry_delay,
             warnings=warnings,
+            depends_on=unique_dep_ids if unique_dep_ids else None,
         )
     finally:
         session.close()

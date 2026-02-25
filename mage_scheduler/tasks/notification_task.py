@@ -7,7 +7,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from tasks.celery_app import app
 from db import SessionLocal, init_db
-from models import TaskRequest
+from models import TaskDependency, TaskRequest
 
 ASK_ASSISTANT_ENDPOINT = "http://127.0.0.1:11115/ask_assistant"
 NOTIFICATION_OUTPUT_MAX = 500
@@ -119,8 +119,11 @@ def run_command_at(task_request_id: int, command: str):
                     "max_retries": max_retries,
                 }
 
-            task_request.status = "success" if result.returncode == 0 else "failed"
+            final_status = "success" if result.returncode == 0 else "failed"
+            task_request.status = final_status
             session.commit()
+
+            _trigger_dependents(task_request_id, final_status)
 
             if notify:
                 _send_completion_notification(task_request, result.returncode)
@@ -130,3 +133,76 @@ def run_command_at(task_request_id: int, command: str):
         "stderr": result.stderr,
         "returncode": result.returncode,
     }
+
+
+# ---------------------------------------------------------------------------
+# Dependency helpers
+# ---------------------------------------------------------------------------
+
+_TERMINAL_BAD = {"failed", "cancelled", "blocked"}
+_TERMINAL_GOOD = {"success"}
+
+
+def _trigger_dependents(completed_task_id: int, completed_status: str) -> None:
+    """After a task reaches a terminal status, unblock or cascade-fail its dependents."""
+    if completed_status not in ("success", "failed", "cancelled"):
+        return
+    from sqlalchemy import select  # noqa: PLC0415 — local import to avoid module-level cycle risk
+
+    with SessionLocal() as session:
+        dep_rows = session.execute(
+            select(TaskDependency).where(TaskDependency.depends_on_task_id == completed_task_id)
+        ).scalars().all()
+        candidate_ids = [r.task_id for r in dep_rows]
+        if not candidate_ids:
+            return
+        waiting = session.execute(
+            select(TaskRequest).where(
+                TaskRequest.id.in_(candidate_ids),
+                TaskRequest.status == "waiting",
+            )
+        ).scalars().all()
+        for wt in waiting:
+            if completed_status in _TERMINAL_BAD:
+                wt.status = "failed"
+                wt.error = f"Dependency task {completed_task_id} failed or was cancelled."
+            else:
+                _try_unblock_task(session, wt)
+        session.commit()
+
+
+def _try_unblock_task(session, wt: TaskRequest) -> None:
+    """Re-evaluate a waiting task: schedule it if all deps succeeded, fail if any dep failed."""
+    from sqlalchemy import select  # noqa: PLC0415
+
+    dep_rows = session.execute(
+        select(TaskDependency).where(TaskDependency.task_id == wt.id)
+    ).scalars().all()
+
+    if not dep_rows:
+        _schedule_waiting_task(session, wt)
+        return
+
+    dep_ids = [r.depends_on_task_id for r in dep_rows]
+    dep_tasks = session.execute(
+        select(TaskRequest).where(TaskRequest.id.in_(dep_ids))
+    ).scalars().all()
+    status_map = {t.id: t.status for t in dep_tasks}
+
+    if any(status_map.get(i, "failed") in _TERMINAL_BAD for i in dep_ids):
+        bad_id = next(i for i in dep_ids if status_map.get(i, "failed") in _TERMINAL_BAD)
+        wt.status = "failed"
+        wt.error = f"Dependency task {bad_id} failed or was cancelled."
+    elif all(status_map.get(i, "") in _TERMINAL_GOOD for i in dep_ids):
+        _schedule_waiting_task(session, wt)
+    # else: still waiting — leave as-is
+
+
+def _schedule_waiting_task(session, wt: TaskRequest) -> None:
+    """Transition a waiting task to scheduled and dispatch its Celery job."""
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    run_at = wt.run_at if wt.run_at and wt.run_at > now_utc else now_utc
+    wt.status = "scheduled"
+    session.flush()
+    result = run_command_at.apply_async(args=[wt.id, wt.command], eta=run_at)
+    wt.celery_task_id = result.id

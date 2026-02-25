@@ -21,7 +21,12 @@ This document defines the LLM-facing contract for creating tasks.
 ### Cancel task
 `POST /api/tasks/{task_id}/cancel`
 
-Only valid for tasks with status `scheduled` or `running`. Returns `{"status": "cancelled", "task_id": N}` or a 400 if the task is already in a terminal state.
+Only valid for tasks with status `scheduled`, `running`, or `waiting`. Returns `{"status": "cancelled", "task_id": N}` or a 400 if the task is already in a terminal state. Cancelling a task immediately fails all tasks that depend on it (`waiting` dependents become `failed`).
+
+### Task dependencies
+`GET /api/tasks/{task_id}/dependencies`
+
+Returns `{"task_id": N, "depends_on": [...], "blocking": [...]}` where `depends_on` lists the upstream tasks this task requires, and `blocking` lists the currently-waiting tasks that depend on it.
 
 ### Validation rules
 `GET /api/validation`
@@ -53,7 +58,8 @@ Only valid for tasks with status `scheduled` or `running`. Returns `{"status": "
     "notify_on_complete": false,
     "max_retries": 0,
     "retry_delay": 60,
-    "cron": null
+    "cron": null,
+    "depends_on": null
   },
   "meta": {
     "source": "mage-lab-llm",
@@ -116,6 +122,10 @@ POST   /api/recurring/{id}/toggle  enable / disable
 - `max_retries` (integer, default `0`) — number of automatic retry attempts on non-zero exit. Inherits from the action's policy; per-task value overrides.
 - `retry_delay` (integer, default `60`) — seconds to wait between retry attempts. Retry attempts increment `retry_count` on the task row and reschedule in place. Notification (if enabled) fires only after the final attempt.
 - `cron` (string, optional) — 5-field cron expression (e.g., `"0 9 * * 1"` for every Monday at 9am). When present, creates a **RecurringTask** instead of a one-off TaskRequest. `run_at` and `run_in` must be omitted. The `description` field becomes the unique recurring task name. Returns `status: "recurring_scheduled"` and includes `next_run_at`.
+- `depends_on` (array of integers, optional) — list of `task_id` values that must complete successfully before this task runs. Cannot be used with `cron`. Three scheduling outcomes based on current dep statuses:
+  - **All succeeded** → task is scheduled immediately (`status: "scheduled"`).
+  - **Any failed/cancelled** → task is created as `failed` immediately (`warnings: ["dependency_failed"]`).
+  - **At least one still in-flight** → task is created as `waiting` (`status: "waiting"`); it will be auto-scheduled when all deps succeed, or immediately failed if any dep fails/cancels.
 
 ## Example preview response
 ```json
@@ -226,7 +236,10 @@ POST   /api/recurring/{id}/toggle  enable / disable
 }
 ```
 
-Other validation failures return the same `code`/`message`/`hint` structure.
+Other validation failures return the same `code`/`message`/`hint` structure, including:
+- `depends_on_invalid` — one or more IDs in `depends_on` do not correspond to existing tasks.
+- `depends_on_already_failed` — all IDs are valid but at least one dependency has already failed or been cancelled; results in an immediate `failed` task (not a 400).
+- `depends_on_cron_unsupported` — `depends_on` cannot be combined with `cron`.
 
 ```json
 {
