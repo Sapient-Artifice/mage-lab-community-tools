@@ -28,6 +28,27 @@ def db_session():
 
 
 @pytest.fixture
+def rec_mem_db(monkeypatch):
+    """In-memory DB with SessionLocal and init_db patched inside tasks.recurring_task."""
+    from db import Base
+    import models  # noqa: F401
+    import tasks.recurring_task as rct
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(bind=engine)
+    Factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    monkeypatch.setattr(rct, "SessionLocal", Factory)
+    monkeypatch.setattr(rct, "init_db", lambda: None)
+
+    yield Factory
+
+    Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
 def nt_mem_db(monkeypatch):
     """In-memory DB with SessionLocal patched inside tasks.notification_task.
 
@@ -117,6 +138,50 @@ def api_client(monkeypatch):
         yield client, Factory
 
     Base.metadata.drop_all(bind=engine)
+
+
+def make_action(session, *, name: str = "test_action", command: str = "echo ok",
+                allowed_env_json: str | None = None,
+                max_retries: int = 0, retry_delay: int = 60,
+                default_cwd: str | None = None) -> "models.Action":
+    """Create and persist a minimal Action, returning the flushed instance."""
+    from models import Action
+
+    action = Action(
+        name=name,
+        command=command,
+        allowed_env_json=allowed_env_json,
+        max_retries=max_retries,
+        retry_delay=retry_delay,
+        default_cwd=default_cwd,
+    )
+    session.add(action)
+    session.flush()
+    return action
+
+
+def make_recurring(
+    session,
+    *,
+    name: str = "test_recurring",
+    cron: str = "* * * * *",
+    command: str = "echo ok",
+    enabled: int = 1,
+    timezone: str = "UTC",
+) -> "models.RecurringTask":
+    """Create and persist a minimal RecurringTask, returning the flushed instance."""
+    from models import RecurringTask
+
+    rt = RecurringTask(
+        name=name,
+        cron=cron,
+        command=command,
+        timezone=timezone,
+        enabled=enabled,
+    )
+    session.add(rt)
+    session.flush()
+    return rt
 
 
 def make_task(session, *, status: str = "scheduled", command: str = "echo ok") -> "models.TaskRequest":
