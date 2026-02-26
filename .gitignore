@@ -1,0 +1,24 @@
+# Claude Code dev config
+.claude/
+
+# Environment files
+*.env
+.env.*
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# SQLite sidecars
+*.db-shm
+*.db-wal
+
+# Planning / internal docs (kept locally, not tracked)
+plan.md
+magedocs0.8.0.md
+mage-social-hub-architecture.md
+mage-social-hub-slack-implementation-plan.md
+mage-social-hub-slack-roadmap-review.md
+mage_scheduler/PROJECT_PLAN.md
