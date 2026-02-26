@@ -1,9 +1,11 @@
 # Claude Code dev config
 .claude/
 
-# Environment files
+# Environment files (keep examples tracked)
 *.env
 .env.*
+!*.env.example
+!.env.example
 
 # Python artifacts
 __pycache__/
