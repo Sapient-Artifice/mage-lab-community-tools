@@ -17,16 +17,28 @@ Getting started is straightforward:
 ## Tools in this repo
 
 ### [mage_scheduler](./mage_scheduler/README.md)
-A local task scheduling service built on FastAPI + Celery + Redis. Schedule one-shot commands, recurring cron jobs, and dependency-chained task pipelines. Includes a web dashboard, a structured LLM intent API, and completion notifications back to the assistant. Comes with a mage lab skill (`mage-scheduler-tool`) for direct assistant integration.
+A local task scheduling service built on FastAPI + Celery + Redis. Schedule one-shot commands, recurring cron jobs, and dependency-chained task pipelines. Includes a web dashboard, a structured LLM intent API, and completion notifications back to the assistant.
+
+### [mage-scheduler-tool](./mage-scheduler-tool/README.md)
+The mage lab skill and Python tool that gives the assistant direct access to the scheduler — scheduling intents, previews, task management, and dashboard control — without constructing API calls by hand.
 
 ### [mage-Slack](./mage-Slack/README.md)
 Listens for Slack message events via Socket Mode and lets you define rules that surface event metadata on a local dashboard or notify the assistant via `ask_assistant`.
 
 ### [mage-home-assistant](./mage-home-assistant/README.md)
-Tool functions for controlling a local Home Assistant instance (Docker container management, entity state queries).
+Tool functions for managing a local Home Assistant instance, including Docker container helpers and entity state queries.
 
 ### [mage-Jira](./mage-Jira/)
-Tools for interacting with Jira (issue creation, updates, status queries).
+Integration for Jira Cloud — create, edit, transition, assign, comment on issues, run JQL queries, and add attachments.
+
+### [CommunityBraveSearch](./CommunityBraveSearch/BraveSearchCommunity_README.md)
+Brave Search tool that calls Brave's REST API directly using your own API key, bypassing the mage lab gateway.
+
+### [GrepGlob](./GrepGlob/GrepGlob_README.md)
+Two file system search utilities: `GlobTool` for fast pattern-based file matching and `GrepTool` for content search across files.
+
+### [mageMap](./mageMap/MAGE_MAPS.md)
+Interactive Leaflet-based routing map that opens in the browser (or embedded in mage lab), with address lookup and turn-by-turn routing.
 
 ---
 
