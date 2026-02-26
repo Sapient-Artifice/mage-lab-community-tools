@@ -16,3 +16,7 @@ wheels/
 celerybeat-schedule.db
 tasks/*.csv
 tasks/*.log
+
+# Personal GPU monitoring tools (local use only)
+tasks/gpu_tasks.py
+tasks/gpu_dashboard.html

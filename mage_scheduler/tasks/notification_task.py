@@ -9,7 +9,7 @@ from tasks.celery_app import app
 from db import SessionLocal, init_db
 from models import TaskDependency, TaskRequest
 
-ASK_ASSISTANT_ENDPOINT = "http://127.0.0.1:11115/ask_assistant"
+ASK_ASSISTANT_ENDPOINT = os.getenv("MAGE_ASK_ASSISTANT_URL", "http://127.0.0.1:11115/ask_assistant")
 NOTIFICATION_OUTPUT_MAX = 500
 NOTIFICATION_ERROR_MAX = 300
 

@@ -19,7 +19,7 @@ import os
 import sys
 import urllib.request
 
-ENDPOINT = "http://127.0.0.1:11115/ask_assistant"
+ENDPOINT = os.environ.get("MAGE_ASK_ASSISTANT_URL", "http://127.0.0.1:11115/ask_assistant")
 
 message = os.environ.get("MESSAGE", "").strip()
 if not message:

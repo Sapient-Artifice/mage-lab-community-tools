@@ -1,9 +1,17 @@
 [project]
 name = "mage-scheduler"
 version = "0.1.0"
-description = "Add your description here"
+description = "A task scheduling service for LLM-driven automation: schedule commands, actions, and recurring jobs via a FastAPI + Celery + Redis stack."
 readme = "README.md"
 requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "mage lab Community Tools Contributors"},
+]
+
+[project.urls]
+Repository = "https://github.com/mage-lab/mage-lab-community-tools"
+
 dependencies = [
     "celery>=5.5.3",
     "croniter>=1.4.0",
@@ -14,6 +22,7 @@ dependencies = [
     "redis>=6.2.0",
     "sqlalchemy>=2.0.0",
     "uvicorn>=0.30.0",
+    "tzdata>=2024.1; sys_platform == 'win32'",
 ]
 
 [tool.pytest.ini_options]

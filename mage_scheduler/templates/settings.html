@@ -27,7 +27,7 @@
             </div>
             <div style="margin-bottom: 8px;">
                 <label for="allowed_cwd_dirs">Allowed CWD Dirs (comma-separated)</label><br>
-                <input id="allowed_cwd_dirs" name="allowed_cwd_dirs" type="text" value="{{ form.allowed_cwd_dirs if form else ((settings.allowed_cwd_dirs or []) | join(', ')) }}" placeholder="/home/bard,/opt/mage">
+                <input id="allowed_cwd_dirs" name="allowed_cwd_dirs" type="text" value="{{ form.allowed_cwd_dirs if form else ((settings.allowed_cwd_dirs or []) | join(', ')) }}" placeholder="/home/user,/opt/mage">
             </div>
             <button type="submit">Save Settings</button>
         </fieldset>
