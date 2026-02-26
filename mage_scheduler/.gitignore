@@ -11,6 +11,8 @@ wheels/
 
 # Local runtime artifacts
 *.db
+*.db-shm
+*.db-wal
 celerybeat-schedule.db
 tasks/*.csv
 tasks/*.log

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-cd /home/bard/Desktop/mage-lab-community-tools/mage_scheduler
+cd "$(dirname "$0")"
 
 CELERY_PID=""
 UVICORN_PID=""
