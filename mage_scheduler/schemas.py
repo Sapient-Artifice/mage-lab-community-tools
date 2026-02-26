@@ -14,6 +14,7 @@ class ActionCreate(BaseModel):
     allowed_cwd_dirs: list[str] | None = None
     max_retries: int = 0
     retry_delay: int = 60
+    retain_result: bool = False
 
 
 class ActionRead(BaseModel):
@@ -28,6 +29,7 @@ class ActionRead(BaseModel):
     allowed_cwd_dirs: list[str] | None = None
     max_retries: int = 0
     retry_delay: int = 60
+    retain_result: bool = False
 
     class Config:
         from_attributes = True
@@ -43,6 +45,7 @@ class ActionUpdate(BaseModel):
     allowed_cwd_dirs: list[str] | None = None
     max_retries: int = 0
     retry_delay: int = 60
+    retain_result: bool = False
 
 
 class TaskIntent(BaseModel):
@@ -59,6 +62,7 @@ class TaskIntent(BaseModel):
     retry_delay: int | None = None
     cron: str | None = None
     depends_on: list[int] | None = None
+    retain_result: bool = False
 
 
 class TaskIntentEnvelope(BaseModel):
@@ -93,6 +97,7 @@ class TaskIntentResponse(BaseModel):
     cron: str | None = None
     next_run_at: str | None = None
     depends_on: list[int] | None = None
+    retain_result: bool = False
 
 
 class RecurringTaskCreate(BaseModel):
@@ -156,6 +161,7 @@ class TaskCreate(BaseModel):
     notify_on_complete: bool = False
     max_retries: int = 0
     retry_delay: int = 60
+    retain_result: bool = False
 
 
 class TaskRunNow(BaseModel):
@@ -166,6 +172,7 @@ class TaskRunNow(BaseModel):
     notify_on_complete: bool = False
     max_retries: int = 0
     retry_delay: int = 60
+    retain_result: bool = False
 
 
 class TaskRead(BaseModel):
@@ -188,6 +195,7 @@ class TaskRead(BaseModel):
     retry_count: int = 0
     recurring_task_id: int | None = None
     depends_on: list[int] | None = None
+    retain_result: bool = False
 
     class Config:
         from_attributes = True

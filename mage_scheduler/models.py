@@ -20,6 +20,7 @@ class Action(Base):
     allowed_cwd_dirs_json = Column(Text, nullable=True)
     max_retries = Column(Integer, default=0, nullable=False)
     retry_delay = Column(Integer, default=60, nullable=False)
+    retain_result = Column(Integer, default=0, nullable=False)
 
     @property
     def allowed_env(self) -> list[str] | None:
@@ -55,6 +56,8 @@ class Settings(Base):
     id = Column(Integer, primary_key=True, index=True)
     allowed_command_dirs_json = Column(Text, nullable=True)
     allowed_cwd_dirs_json = Column(Text, nullable=True)
+    cleanup_enabled = Column(Integer, default=0, nullable=False)
+    task_retention_days = Column(Integer, default=30, nullable=False)
 
     @property
     def allowed_command_dirs(self) -> list[str] | None:
@@ -98,6 +101,7 @@ class TaskRequest(Base):
     retry_delay = Column(Integer, default=60, nullable=False)
     retry_count = Column(Integer, default=0, nullable=False)
     recurring_task_id = Column(Integer, nullable=True)
+    retain_result = Column(Integer, default=0, nullable=False)
 
     @property
     def env_keys(self) -> list[str] | None:

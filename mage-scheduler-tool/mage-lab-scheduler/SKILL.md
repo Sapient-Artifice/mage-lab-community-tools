@@ -58,7 +58,8 @@ Use this structure for scheduling:
     "env": {"KEY": "VALUE"},
     "notify_on_complete": false,
     "max_retries": 0,
-    "retry_delay": 60
+    "retry_delay": 60,
+    "retain_result": false
   },
   "meta": {
     "source": "mage-lab-llm",
@@ -77,6 +78,7 @@ Rules:
 - `timezone` defaults to `"UTC"` if omitted; required for correct `run_at` interpretation.
 - `max_retries` (default `0`) — number of automatic retry attempts on failure. Per-task override; inherits from action if not set.
 - `retry_delay` (default `60`) — seconds to wait between retry attempts.
+- `retain_result` (default `false`) — when `true`, the task is excluded from auto-cleanup even after reaching a terminal state. Useful for audit trails or tasks whose output should never be purged. If the action already has `retain_result` set, that flag wins regardless of the task-level value.
 - `cron` — 5-field cron expression (e.g., `"0 9 * * 1"` = Monday 9am). Creates a **RecurringTask** instead of a one-off. `run_at`/`run_in` must be omitted. The `description` becomes the unique recurring task name. Response has `status: "recurring_scheduled"` and includes `next_run_at`.
 - `depends_on` — list of `task_id` integers that must complete successfully before this task runs. Not compatible with `cron`. Three scheduling outcomes:
   - All deps succeeded → task is scheduled immediately (`status: "scheduled"`).

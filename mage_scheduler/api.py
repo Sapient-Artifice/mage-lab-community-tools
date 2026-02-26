@@ -533,6 +533,17 @@ def list_tasks(db: Session = Depends(get_db)):
     return db.execute(select(TaskRequest).order_by(TaskRequest.created_at.desc())).scalars().all()
 
 
+@app.get("/api/tasks/stats")
+def task_stats(db: Session = Depends(get_db)) -> dict:
+    from sqlalchemy import func
+    rows = db.execute(
+        select(TaskRequest.status, func.count(TaskRequest.id))
+        .group_by(TaskRequest.status)
+    ).all()
+    counts = {status: count for status, count in rows}
+    return {"total": sum(counts.values()), "by_status": counts}
+
+
 @app.get("/api/tasks/{task_id}", response_model=TaskRead)
 def get_task(task_id: int, db: Session = Depends(get_db)):
     task = db.get(TaskRequest, task_id)
@@ -637,6 +648,7 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
     task.notify_on_complete = 1 if payload.notify_on_complete else 0
     task.max_retries = max(0, payload.max_retries)
     task.retry_delay = max(1, payload.retry_delay)
+    task.retain_result = 1 if payload.retain_result else 0
     db.commit()
     db.refresh(task)
     return task
@@ -673,6 +685,7 @@ def run_task_now(payload: TaskRunNow, db: Session = Depends(get_db)):
     task.notify_on_complete = 1 if payload.notify_on_complete else 0
     task.max_retries = max(0, payload.max_retries)
     task.retry_delay = max(1, payload.retry_delay)
+    task.retain_result = 1 if payload.retain_result else 0
     db.commit()
     db.refresh(task)
     return task
@@ -695,6 +708,8 @@ def settings_update(
     request: Request,
     allowed_command_dirs: str | None = Form(None),
     allowed_cwd_dirs: str | None = Form(None),
+    cleanup_enabled: str | None = Form(None),
+    task_retention_days: int | None = Form(None),
 ):
     allowed_command_dirs_list = _parse_allowed_dirs(allowed_command_dirs)
     allowed_cwd_dirs_list = _parse_allowed_dirs(allowed_cwd_dirs)
@@ -725,6 +740,9 @@ def settings_update(
         settings.allowed_cwd_dirs_json = (
             json.dumps(allowed_cwd_dirs_list) if allowed_cwd_dirs_list else None
         )
+        settings.cleanup_enabled = 1 if cleanup_enabled == "1" else 0
+        if task_retention_days is not None:
+            settings.task_retention_days = max(1, task_retention_days)
         session.commit()
     return RedirectResponse(url="/settings", status_code=303)
 
@@ -927,6 +945,7 @@ def create_action(payload: ActionCreate, db: Session = Depends(get_db)):
         ),
         max_retries=max(0, payload.max_retries),
         retry_delay=max(1, payload.retry_delay),
+        retain_result=1 if payload.retain_result else 0,
     )
     db.add(action)
     db.commit()
@@ -959,6 +978,7 @@ def update_action(action_id: int, payload: ActionUpdate, db: Session = Depends(g
     )
     action.max_retries = max(0, payload.max_retries)
     action.retry_delay = max(1, payload.retry_delay)
+    action.retain_result = 1 if payload.retain_result else 0
     db.commit()
     db.refresh(action)
     return action
@@ -972,6 +992,13 @@ def delete_action(action_id: int, db: Session = Depends(get_db)):
     db.delete(action)
     db.commit()
     return {"status": "deleted", "action_id": action_id}
+
+
+@app.post("/api/tasks/cleanup")
+def manual_cleanup(db: Session = Depends(get_db)):
+    from tasks.cleanup_task import _do_cleanup
+    deleted = _do_cleanup(db)
+    return {"deleted": deleted}
 
 
 def _handle_recurring_intent(payload, session, normalized_intent_version, tzinfo):
@@ -1243,6 +1270,18 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             effective_max_retries = max(0, payload.task.max_retries)
         if payload.task.retry_delay is not None:
             effective_retry_delay = max(1, payload.task.retry_delay)
+        # retain_result: action flag wins; otherwise use task-level flag
+        effective_retain_result = 0
+        if action_name:
+            action_obj = session.execute(
+                select(Action).where(Action.name == action_name)
+            ).scalar_one_or_none()
+            if action_obj and action_obj.retain_result == 1:
+                effective_retain_result = 1
+            elif payload.task.retain_result:
+                effective_retain_result = 1
+        elif payload.task.retain_result:
+            effective_retain_result = 1
 
         # --- Dependency branching ---
         unique_dep_ids = list(dict.fromkeys(payload.task.depends_on or []))
@@ -1267,6 +1306,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
                 notify_on_complete=1 if payload.task.notify_on_complete else 0,
                 max_retries=effective_max_retries,
                 retry_delay=effective_retry_delay,
+                retain_result=effective_retain_result,
             )
             session.add(task_req)
             session.flush()
@@ -1291,6 +1331,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
                 warnings=["dependency_failed"],
                 errors=[_intent_error("depends_on_already_failed")],
                 depends_on=unique_dep_ids,
+                retain_result=bool(effective_retain_result),
             )
 
         if dep_outcome == "waiting":
@@ -1309,6 +1350,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
                 notify_on_complete=1 if payload.task.notify_on_complete else 0,
                 max_retries=effective_max_retries,
                 retry_delay=effective_retry_delay,
+                retain_result=effective_retain_result,
             )
             session.add(task_req)
             session.flush()
@@ -1332,6 +1374,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
                 retry_delay=effective_retry_delay,
                 warnings=[],
                 depends_on=unique_dep_ids,
+                retain_result=bool(effective_retain_result),
             )
 
         # dep_outcome == "immediate_schedule" — fall through to normal scheduling
@@ -1355,6 +1398,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             task.notify_on_complete = 1 if payload.task.notify_on_complete else 0
             task.max_retries = effective_max_retries
             task.retry_delay = effective_retry_delay
+            task.retain_result = effective_retain_result
             session.flush()
             for dep_id in unique_dep_ids:
                 session.add(TaskDependency(task_id=task_id, depends_on_task_id=dep_id))
@@ -1377,6 +1421,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             retry_delay=effective_retry_delay,
             warnings=warnings,
             depends_on=unique_dep_ids if unique_dep_ids else None,
+            retain_result=bool(effective_retain_result),
         )
     finally:
         session.close()

@@ -17,6 +17,10 @@ app.conf.beat_schedule = {
         'task': 'tasks.dependency_task.check_waiting_tasks',
         'schedule': 60.0,
     },
+    'cleanup-old-tasks-daily': {
+        'task': 'tasks.cleanup_task.cleanup_old_tasks',
+        'schedule': 86400.0,
+    },
 }
 
 # Import tasks modules to register decorated tasks
@@ -24,6 +28,7 @@ import tasks.gpu_tasks
 import tasks.notification_task
 import tasks.recurring_task
 import tasks.dependency_task
+import tasks.cleanup_task
 
 if __name__ == '__main__':
     app.start()

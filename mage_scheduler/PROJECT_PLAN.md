@@ -39,11 +39,12 @@ Resilience and workflow:
 
 ## Phase 5
 User experience:
-- Task creation wizard in dashboard
-- Search/filter by status/source/action
-- Status history timeline
+- Search/filter by status/source/action/task id
+- delete button for blocked, recurring, and waiting tasks
+- way to view message for assistant in a scheduled task using ask assistant action
 - Export task results
 - Outbound webhooks on task completion
+- delete all (non-recurring)
 
 ## Open decisions
 - Permissions model (still single-user for now)

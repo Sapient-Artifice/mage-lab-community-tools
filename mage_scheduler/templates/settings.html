@@ -31,6 +31,25 @@
             </div>
             <button type="submit">Save Settings</button>
         </fieldset>
+        <fieldset style="margin-top:16px">
+            <legend>Auto-Cleanup</legend>
+            <label>
+                <input type="checkbox" name="cleanup_enabled" value="1" id="cleanup_enabled"
+                       {% if settings.cleanup_enabled %}checked{% endif %}>
+                Enable auto-cleanup of old completed tasks (runs daily)
+            </label>
+            <div id="retention-days-row" style="margin-top:8px; display:{% if settings.cleanup_enabled %}block{% else %}none{% endif %}">
+                <label for="task_retention_days">Retention days</label><br>
+                <input type="number" name="task_retention_days" id="task_retention_days"
+                       value="{{ settings.task_retention_days or 30 }}" min="1" max="3650" style="width:80px">
+                <small style="margin-left:6px">days (default: 30). Tasks with <em>retain result</em> are never deleted.</small>
+            </div>
+        </fieldset>
     </form>
+    <script>
+        document.getElementById('cleanup_enabled').addEventListener('change', function() {
+            document.getElementById('retention-days-row').style.display = this.checked ? 'block' : 'none';
+        });
+    </script>
 </body>
 </html>
