@@ -14,6 +14,22 @@ Getting started is straightforward:
 
 ---
 
+## Tools in this repo
+
+### [mage_scheduler](./mage_scheduler/README.md)
+A local task scheduling service built on FastAPI + Celery + Redis. Schedule one-shot commands, recurring cron jobs, and dependency-chained task pipelines. Includes a web dashboard, a structured LLM intent API, and completion notifications back to the assistant. Comes with a mage lab skill (`mage-scheduler-tool`) for direct assistant integration.
+
+### [mage-Slack](./mage-Slack/README.md)
+Listens for Slack message events via Socket Mode and lets you define rules that surface event metadata on a local dashboard or notify the assistant via `ask_assistant`.
+
+### [mage-home-assistant](./mage-home-assistant/README.md)
+Tool functions for controlling a local Home Assistant instance (Docker container management, entity state queries).
+
+### [mage-Jira](./mage-Jira/)
+Tools for interacting with Jira (issue creation, updates, status queries).
+
+---
+
 ## 🤝 Contributing
 
 We welcome your creativity and expertise! Whether you're suggesting new tools or enhancing existing ones, your contributions help the community grow.

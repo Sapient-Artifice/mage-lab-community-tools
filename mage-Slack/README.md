@@ -142,11 +142,11 @@ SLACK_MAGE_API_TOKEN=your-local-dashboard-token
 - Surfaced events store metadata plus message text in the local state file for dashboard display.
 - Rule toggle "Notify + message" includes the message text in assistant notifications.
 
-TODO:
-- Integrate html page into mage tabs
-- clean up dashboard to make more user friendly
-- add responses and targeted assistant responses on behalf of user
+## Roadmap
 
+- Integrate dashboard into mage tabs (instead of a separate browser window)
+- Dashboard UX improvements
+- Assistant-initiated Slack responses on behalf of the user
 
 ## License
 This tool inherits the MIT License from the mage lab Community Tools repository.

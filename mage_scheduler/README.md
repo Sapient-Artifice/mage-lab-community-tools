@@ -3,10 +3,14 @@
 Mage Scheduler is a small task scheduling service built on Celery + Redis with a FastAPI dashboard/API. It is designed to accept structured task intents (from LLMs or humans) and provide clear visibility into scheduled jobs.
 
 ## What it does
-- Schedules shell commands at a specified time or after a duration
+- Schedules shell commands at a specified time or after a duration (`run_at` / `run_in`)
+- Supports recurring tasks via cron expressions (with timezone control)
+- Chains tasks with dependencies (`depends_on: [task_id]`) — waiting tasks auto-unblock or cascade-fail
+- Retry policy per action (`max_retries`, `retry_delay`)
+- Auto-cleanup of old terminal tasks (configurable retention)
 - Stores task metadata in SQLite
 - Provides an HTML dashboard for verification
-- Exposes JSON endpoints for LLM-driven task creation
+- Exposes JSON endpoints for LLM-driven task creation via the intent API
 - Sends automated notifications back to the assistant on task completion
 
 ## Requirements
@@ -181,8 +185,71 @@ curl -X POST http://127.0.0.1:8012/api/actions \
   }'
 ```
 
+## Recurring tasks
+
+Create a recurring task via the dashboard at `/recurring` or via the intent API:
+
+```bash
+curl -X POST http://127.0.0.1:8012/api/recurring \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "daily_report",
+    "cron": "0 9 * * 1-5",
+    "action_name": "send_report",
+    "timezone": "America/New_York",
+    "enabled": true
+  }'
+```
+
+## Task dependencies
+
+Use `depends_on` to chain tasks. Waiting tasks are unblocked automatically when their dependencies succeed; if a dependency fails or is cancelled, the waiting task is cascade-failed:
+
+```bash
+curl -X POST http://127.0.0.1:8012/api/tasks/intent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "intent_version": "v1",
+    "task": {
+      "description": "Deploy after build",
+      "action_name": "deploy",
+      "depends_on": [42]
+    },
+    "meta": { "source": "mage-lab-llm" }
+  }'
+```
+
+## Mage Scheduler Tool
+
+The `mage-scheduler-tool/` directory at the repo root contains a mage lab skill and Python tool that lets the assistant schedule tasks directly without constructing curl commands.
+
+Copy the `mage-scheduler-tool` folder to `~/Mage/Tools` and enable it in **Settings → Tools → Community**. The assistant then has access to:
+
+```
+mage_scheduler_schedule_intent(intent_json)
+mage_scheduler_preview_intent(intent_json)
+mage_scheduler_list_tasks(limit)
+mage_scheduler_cancel_task(task_id)
+mage_scheduler_run_now(task_json)
+mage_scheduler_open_dashboard()
+mage_scheduler_start(port)
+mage_scheduler_status()
+```
+
+## Running tests
+
+```bash
+# From the mage_scheduler/ directory:
+uv run pytest tests/ -v
+```
+
+All 367 tests should pass. Tests use an in-memory SQLite database and mock Celery dispatch; no running Redis or worker is required.
+
 ## Notes
 - Times in the UI are shown in local system time.
 - SQLite DB file: `mage_scheduler.db`. Schema migrations run automatically on startup.
 - Local artifacts are ignored via `mage_scheduler/.gitignore`.
-- GPU monitoring logs are stored at `mage_scheduler/tasks/gpu_monitor_log.csv`. Open `mage_scheduler/tasks/gpu_dashboard.html` in a browser to review.
+
+## License
+
+MIT — see [LICENSE](../LICENSE) at the repo root.
