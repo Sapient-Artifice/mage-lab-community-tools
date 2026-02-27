@@ -12,15 +12,20 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+.venv/
 
-# SQLite sidecars
+# SQLite databases and sidecars
+*.db
 *.db-shm
 *.db-wal
+
+# Runtime outputs
+*.log
+mage_scheduler/tasks/gpu_monitor_log.csv
+mage_scheduler/tasks/gpu_dashboard.html
 
 # Planning / internal docs (kept locally, not tracked)
 plan.md
 magedocs0.8.0.md
-mage-social-hub-architecture.md
-mage-social-hub-slack-implementation-plan.md
-mage-social-hub-slack-roadmap-review.md
+mage-social-hub*
 mage_scheduler/PROJECT_PLAN.md
