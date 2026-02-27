@@ -29,22 +29,24 @@
                 <label for="allowed_cwd_dirs">Allowed CWD Dirs (comma-separated)</label><br>
                 <input id="allowed_cwd_dirs" name="allowed_cwd_dirs" type="text" value="{{ form.allowed_cwd_dirs if form else ((settings.allowed_cwd_dirs or []) | join(', ')) }}" placeholder="/home/user,/opt/mage">
             </div>
-            <button type="submit">Save Settings</button>
         </fieldset>
         <fieldset style="margin-top:16px">
             <legend>Auto-Cleanup</legend>
             <label>
                 <input type="checkbox" name="cleanup_enabled" value="1" id="cleanup_enabled"
-                       {% if settings.cleanup_enabled %}checked{% endif %}>
+                       {% if (form and form.cleanup_enabled == "1") or (not form and settings.cleanup_enabled) %}checked{% endif %}>
                 Enable auto-cleanup of old completed tasks (runs daily)
             </label>
-            <div id="retention-days-row" style="margin-top:8px; display:{% if settings.cleanup_enabled %}block{% else %}none{% endif %}">
+            <div id="retention-days-row" style="margin-top:8px; display:{% if (form and form.cleanup_enabled == "1") or (not form and settings.cleanup_enabled) %}block{% else %}none{% endif %}">
                 <label for="task_retention_days">Retention days</label><br>
                 <input type="number" name="task_retention_days" id="task_retention_days"
                        value="{{ settings.task_retention_days or 30 }}" min="1" max="3650" style="width:80px">
                 <small style="margin-left:6px">days (default: 30). Tasks with <em>retain result</em> are never deleted.</small>
             </div>
         </fieldset>
+        <div style="margin-top: 16px;">
+            <button type="submit">Save Settings</button>
+        </div>
     </form>
     <script>
         document.getElementById('cleanup_enabled').addEventListener('change', function() {

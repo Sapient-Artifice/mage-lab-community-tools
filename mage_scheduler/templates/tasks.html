@@ -17,7 +17,7 @@
 </head>
 <body>
     <h1>Mage Scheduler</h1>
-    <p class="muted">Auto-refreshes every 30 seconds. Times are shown in local time. <a href="/actions">Manage actions</a> | <a href="/recurring">Recurring tasks</a> | <a href="/settings">Settings</a></p>
+    <p class="muted">Auto-refreshes every 30 seconds. Times are shown in local time. <a href="/actions">Manage actions</a> | <a href="/recurring">Recurring tasks</a> | <a href="/settings">Settings</a>{% if cleanup_enabled %}&nbsp;<span class="muted" style="font-size:0.8em; background:#f0f0f0; padding:1px 6px; border-radius:10px;" title="Auto-cleanup enabled — {{ retention_days }}-day retention">↺ cleanup</span>{% endif %}</p>
     <form action="/tasks" method="post" style="margin-top: 16px;">
         <fieldset style="border: 1px solid #ddd; padding: 12px; border-radius: 6px;">
             <legend style="padding: 0 6px;">Create Task</legend>

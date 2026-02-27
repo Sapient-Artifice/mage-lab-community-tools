@@ -402,6 +402,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     recurring_tasks = db.execute(
         select(RecurringTask).order_by(RecurringTask.name.asc())
     ).scalars().all()
+    settings = _get_settings(db)
     return templates.TemplateResponse(
         "tasks.html",
         {
@@ -412,6 +413,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "blocked_tasks": blocked_tasks,
             "waiting_tasks": waiting_tasks,
             "recurring_tasks": recurring_tasks,
+            "cleanup_enabled": bool(settings.cleanup_enabled),
+            "retention_days": settings.task_retention_days or 30,
         },
     )
 
@@ -728,6 +731,7 @@ def settings_update(
                 "form": {
                     "allowed_command_dirs": allowed_command_dirs or "",
                     "allowed_cwd_dirs": allowed_cwd_dirs or "",
+                    "cleanup_enabled": cleanup_enabled or "",
                 },
             },
             status_code=400,
