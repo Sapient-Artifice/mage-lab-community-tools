@@ -2,6 +2,8 @@
 
 Mage Scheduler is a small task scheduling service built on Celery + Redis with a FastAPI dashboard/API. It is designed to accept structured task intents (from LLMs or humans) and provide clear visibility into scheduled jobs.
 
+> **Companion tool:** [`mage-scheduler-tool`](../mage-scheduler-tool/README.md) is the mage lab skill that connects the assistant to this service — install both to schedule tasks by talking to Mage.
+
 ## What it does
 - Schedules shell commands at a specified time or after a duration (`run_at` / `run_in`)
 - Supports recurring tasks via cron expressions (with timezone control)

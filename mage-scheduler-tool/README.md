@@ -2,6 +2,8 @@
 
 This tool connects mage lab to the Mage Scheduler service so the assistant can schedule tasks on your behalf.
 
+> **Companion service:** This tool is the mage lab interface to the [`mage_scheduler`](../mage_scheduler/README.md) service. The tool handles assistant-side communication; the service handles execution. Both must be installed.
+
 ## Install
 1) Copy the python file mage_scheduler_tool.py into `~/Mage/Tools`.
 2. Copy the mage-lab-scheduler folder into `~/Mage/Skills`

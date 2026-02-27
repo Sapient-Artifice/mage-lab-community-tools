@@ -17,10 +17,10 @@ Getting started is straightforward:
 ## Tools in this repo
 
 ### [mage_scheduler](./mage_scheduler/README.md)
-A local task scheduling service built on FastAPI + Celery + Redis. Schedule one-shot commands, recurring cron jobs, and dependency-chained task pipelines. Includes a web dashboard, a structured LLM intent API, and completion notifications back to the assistant.
+A local task scheduling service built on FastAPI + Celery + Redis. Schedule one-shot commands, recurring cron jobs, and dependency-chained task pipelines. Includes a web dashboard, a structured LLM intent API, and completion notifications back to the assistant. **Pairs with [mage-scheduler-tool](./mage-scheduler-tool/README.md).**
 
 ### [mage-scheduler-tool](./mage-scheduler-tool/README.md)
-The mage lab skill and Python tool that gives the assistant direct access to the scheduler — scheduling intents, previews, task management, and dashboard control — without constructing API calls by hand.
+The mage lab skill and Python tool that gives the assistant direct access to the scheduler — scheduling intents, previews, task management, and dashboard control — without constructing API calls by hand. **Requires the [mage_scheduler](./mage_scheduler/README.md) service.**
 
 ### [mage-Slack](./mage-Slack/README.md)
 Listens for Slack message events via Socket Mode and lets you define rules that surface event metadata on a local dashboard or notify the assistant via `ask_assistant`.
