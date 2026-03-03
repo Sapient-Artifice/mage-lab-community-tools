@@ -8,7 +8,7 @@ import shlex
 import time
 from zoneinfo import ZoneInfo
 from pathlib import Path
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from starlette.responses import RedirectResponse
 from celery.result import AsyncResult
@@ -532,8 +532,16 @@ def parse_nl_request(payload: dict):
 
 
 @app.get("/api/tasks", response_model=list[TaskRead])
-def list_tasks(db: Session = Depends(get_db)):
-    return db.execute(select(TaskRequest).order_by(TaskRequest.created_at.desc())).scalars().all()
+def list_tasks(
+    status: str | None = Query(default=None, description="Comma-separated status filter, e.g. 'scheduled,running'"),
+    db: Session = Depends(get_db),
+):
+    q = select(TaskRequest).order_by(TaskRequest.created_at.desc())
+    if status:
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        if statuses:
+            q = q.where(TaskRequest.status.in_(statuses))
+    return db.execute(q).scalars().all()
 
 
 @app.get("/api/tasks/stats")
@@ -1010,6 +1018,10 @@ def _handle_recurring_intent(payload, session, normalized_intent_version, tzinfo
     task = payload.task
     errors: list[str] = []
 
+    # description doubles as the unique recurring task name — must be non-blank
+    if not task.description or not task.description.strip():
+        errors.append("recurring_name_required")
+
     # depends_on not supported for recurring tasks
     if task.depends_on:
         errors.append("depends_on_cron_unsupported")
@@ -1109,6 +1121,8 @@ def _handle_recurring_intent(payload, session, normalized_intent_version, tzinfo
     source = payload.meta.get("source") if payload.meta else None
     tz_name = task.timezone or "UTC"
     next_run_at = compute_initial_next_run(task.cron, tz_name)
+    # next_run_at is UTC-naive; convert to user's tz for the local display field
+    next_run_at_local = next_run_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz_name))
 
     rt = RecurringTask(
         name=task.description,
@@ -1132,7 +1146,7 @@ def _handle_recurring_intent(payload, session, normalized_intent_version, tzinfo
     return TaskIntentResponse(
         status="recurring_scheduled",
         task_id=rt.id,
-        scheduled_at_local=next_run_at.strftime("%Y-%m-%dT%H:%M:%S"),
+        scheduled_at_local=next_run_at_local.strftime("%Y-%m-%dT%H:%M:%S"),
         scheduled_at_utc=next_run_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         command=resolved_command,
         description=task.description,
@@ -1338,6 +1352,26 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
                 retain_result=bool(effective_retain_result),
             )
 
+        # --- replace_existing: cancel any active same-description tasks before creating the new one ---
+        replaced_task_ids: list[int] = []
+        if payload.replace_existing:
+            existing_tasks = session.execute(
+                select(TaskRequest).where(
+                    TaskRequest.description == payload.task.description,
+                    TaskRequest.status.in_(["scheduled", "waiting"]),
+                )
+            ).scalars().all()
+            for et in existing_tasks:
+                if et.celery_task_id:
+                    AsyncResult(et.celery_task_id, app=celery_app).revoke(terminate=True)
+                et.status = "cancelled"
+                replaced_task_ids.append(et.id)
+            if replaced_task_ids:
+                session.flush()
+                for old_id in replaced_task_ids:
+                    _cascade_fail_dependents(session, old_id, "Replaced by a new scheduling request.")
+                session.commit()
+
         if dep_outcome == "waiting":
             run_at_naive = schedule_run_at.replace(tzinfo=None) if hasattr(schedule_run_at, "tzinfo") and schedule_run_at.tzinfo is not None else schedule_run_at
             task_req = TaskRequest(
@@ -1379,6 +1413,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
                 warnings=[],
                 depends_on=unique_dep_ids,
                 retain_result=bool(effective_retain_result),
+                replaced_task_ids=replaced_task_ids or None,
             )
 
         # dep_outcome == "immediate_schedule" — fall through to normal scheduling
@@ -1426,6 +1461,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
             warnings=warnings,
             depends_on=unique_dep_ids if unique_dep_ids else None,
             retain_result=bool(effective_retain_result),
+            replaced_task_ids=replaced_task_ids or None,
         )
     finally:
         session.close()

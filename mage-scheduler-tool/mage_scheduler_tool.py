@@ -101,9 +101,32 @@ def _spawn_process(args: list[str], cwd: Path, log_path: Path) -> subprocess.Pop
     )
 
 
+def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    base_url = _current_base_url()
+    resp = requests.post(f"{base_url}{path}", json=payload, timeout=10)
+    if not resp.ok:
+        return {"error": resp.text, "status_code": resp.status_code}
+    return resp.json()
+
+
+def _get_json(path: str) -> Dict[str, Any]:
+    base_url = _current_base_url()
+    resp = requests.get(f"{base_url}{path}", timeout=10)
+    if not resp.ok:
+        return {"error": resp.text, "status_code": resp.status_code}
+    return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Service lifecycle
+# ---------------------------------------------------------------------------
+
 @function_schema(
     name="mage_scheduler_start",
-    description="Start the mage scheduler API and worker services",
+    description=(
+        "Start the Mage Scheduler API and Celery worker. "
+        "Call this if any other scheduler tool returns a connection error."
+    ),
     required_params=[],
     optional_params=["port"],
 )
@@ -154,7 +177,7 @@ def mage_scheduler_start(port: Optional[str] = None) -> str:
 
 @function_schema(
     name="mage_scheduler_stop",
-    description="Stop the mage scheduler API and worker services",
+    description="Stop the Mage Scheduler API and worker services.",
     required_params=[],
     optional_params=[],
 )
@@ -182,7 +205,10 @@ def mage_scheduler_stop() -> str:
 
 @function_schema(
     name="mage_scheduler_status",
-    description="Check scheduler status",
+    description=(
+        "Check whether the Mage Scheduler API and worker are alive. "
+        "Returns base_url, pid status, and API/worker readiness."
+    ),
     required_params=[],
     optional_params=[],
 )
@@ -205,9 +231,13 @@ def mage_scheduler_status() -> str:
     return json.dumps(status, indent=2)
 
 
+# ---------------------------------------------------------------------------
+# Dashboard / browser shortcuts
+# ---------------------------------------------------------------------------
+
 @function_schema(
     name="mage_scheduler_open_dashboard",
-    description="Open the scheduler dashboard",
+    description="Open the scheduler dashboard in the browser to review tasks and results visually.",
     required_params=[],
     optional_params=[],
 )
@@ -219,7 +249,7 @@ def mage_scheduler_open_dashboard() -> str:
 
 @function_schema(
     name="mage_scheduler_open_actions",
-    description="Open the scheduler actions page",
+    description="Open the scheduler actions management page in the browser.",
     required_params=[],
     optional_params=[],
 )
@@ -231,7 +261,7 @@ def mage_scheduler_open_actions() -> str:
 
 @function_schema(
     name="mage_scheduler_open_settings",
-    description="Open the scheduler settings page",
+    description="Open the scheduler settings page in the browser.",
     required_params=[],
     optional_params=[],
 )
@@ -241,25 +271,127 @@ def mage_scheduler_open_settings() -> str:
     return f"Opened {base_url}/settings"
 
 
-def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    base_url = _current_base_url()
-    resp = requests.post(f"{base_url}{path}", json=payload, timeout=10)
-    if not resp.ok:
-        return {"error": resp.text, "status_code": resp.status_code}
-    return resp.json()
+# ---------------------------------------------------------------------------
+# Context bootstrap (Phase 3)
+# ---------------------------------------------------------------------------
+
+@function_schema(
+    name="mage_scheduler_context",
+    description=(
+        "Single bootstrap call to orient yourself before scheduling. "
+        "Returns service status, available actions (name + allowed env), "
+        "recent tasks with status/error, task counts by status, and allowed "
+        "command/cwd directories. Call this once at the start of a scheduling "
+        "session instead of calling status, list_actions, list_tasks, and "
+        "get_validation separately."
+    ),
+    required_params=[],
+    optional_params=[],
+)
+def mage_scheduler_context() -> str:
+    state = _load_state()
+    base_url = _resolve_base_url(state)
+    api_ready = _service_ready(base_url)
+    worker_ready = _worker_ready(base_url)
+
+    service = {
+        "base_url": base_url,
+        "api_ready": api_ready,
+        "worker_ready": worker_ready,
+    }
+
+    if not api_ready:
+        return json.dumps(
+            {
+                "service": service,
+                "hint": "Scheduler is not running. Call mage_scheduler_start() to start it.",
+            },
+            indent=2,
+        )
+
+    # Available actions
+    actions: list = []
+    try:
+        resp = requests.get(f"{base_url}/api/actions", timeout=5)
+        if resp.ok:
+            actions = [
+                {
+                    "name": a.get("name"),
+                    "description": a.get("description"),
+                    "allowed_env": a.get("allowed_env"),
+                }
+                for a in resp.json()
+            ]
+    except requests.RequestException:
+        pass
+
+    # Task counts by status
+    stats: dict = {}
+    try:
+        resp = requests.get(f"{base_url}/api/tasks/stats", timeout=5)
+        if resp.ok:
+            stats = resp.json()
+    except requests.RequestException:
+        pass
+
+    # Recent tasks — prefer active/terminal over noise; skip bulk cancelled clutter
+    recent_tasks: list = []
+    try:
+        resp = requests.get(f"{base_url}/api/tasks", timeout=5)
+        if resp.ok:
+            all_tasks = resp.json()
+            # Show active + recently completed first; suppress cancelled unless nothing else
+            active = [t for t in all_tasks if t.get("status") not in ("cancelled", "blocked")]
+            pool = active if active else all_tasks
+            recent_tasks = [
+                {
+                    "id": t.get("id"),
+                    "description": t.get("description"),
+                    "status": t.get("status"),
+                    "run_at": t.get("run_at"),
+                    "action_name": t.get("action_name"),
+                    "error": ((t.get("error") or "")[:100]) or None,
+                }
+                for t in pool[:10]
+            ]
+    except requests.RequestException:
+        pass
+
+    # Allowed dirs from settings
+    validation: dict = {}
+    try:
+        resp = requests.get(f"{base_url}/api/validation", timeout=5)
+        if resp.ok:
+            v = resp.json()
+            validation = {
+                "allowed_command_dirs": v.get("allowed_command_dirs", []),
+                "allowed_cwd_dirs": v.get("allowed_cwd_dirs", []),
+            }
+    except requests.RequestException:
+        pass
+
+    return json.dumps(
+        {
+            "service": service,
+            "actions": actions,
+            "stats": stats,
+            "recent_tasks": recent_tasks,
+            "validation": validation,
+        },
+        indent=2,
+    )
 
 
-def _get_json(path: str) -> Dict[str, Any]:
-    base_url = _current_base_url()
-    resp = requests.get(f"{base_url}{path}", timeout=10)
-    if not resp.ok:
-        return {"error": resp.text, "status_code": resp.status_code}
-    return resp.json()
-
+# ---------------------------------------------------------------------------
+# Intent scheduling
+# ---------------------------------------------------------------------------
 
 @function_schema(
     name="mage_scheduler_preview_intent",
-    description="Preview a scheduling intent without creating a task",
+    description=(
+        "Validate a scheduling intent and preview the resolved schedule without creating a task. "
+        "Use before mage_scheduler_schedule_intent when you want to confirm timing or catch errors first."
+    ),
     required_params=["intent_json"],
     optional_params=[],
 )
@@ -271,7 +403,15 @@ def mage_scheduler_preview_intent(intent_json: str) -> str:
 
 @function_schema(
     name="mage_scheduler_schedule_intent",
-    description="Schedule a task using the LLM intent schema",
+    description=(
+        "Schedule a task using the structured intent API. "
+        "Primary tool for creating one-off, dependency-chained, and recurring (cron) tasks. "
+        "Accepts intent_json with fields: description, action_name or command, run_at or run_in, "
+        "timezone, cron, depends_on, notify_on_complete, env, max_retries. "
+        "Set top-level 'replace_existing': true to cancel any existing scheduled/waiting tasks "
+        "with the same description before creating the new one — useful for rescheduling without "
+        "accumulating stale entries. Response includes 'replaced_task_ids' when tasks were cancelled."
+    ),
     required_params=["intent_json"],
     optional_params=[],
 )
@@ -283,7 +423,11 @@ def mage_scheduler_schedule_intent(intent_json: str) -> str:
 
 @function_schema(
     name="mage_scheduler_run_now",
-    description="Run a command immediately via the scheduler. task_json must include a non-empty 'command' field.",
+    description=(
+        "Dispatch a command for immediate execution via the scheduler. "
+        "task_json must include 'command' (absolute path). "
+        "Optional fields: description, cwd, notify_on_complete, max_retries."
+    ),
     required_params=["task_json"],
     optional_params=[],
 )
@@ -293,20 +437,36 @@ def mage_scheduler_run_now(task_json: str) -> str:
     return json.dumps(result, indent=2)
 
 
+# ---------------------------------------------------------------------------
+# Task inspection and management
+# ---------------------------------------------------------------------------
+
 @function_schema(
     name="mage_scheduler_list_tasks",
-    description="List recent scheduler tasks",
+    description=(
+        "List recent scheduler tasks. "
+        "Each entry includes id, description, status, run_at, action_name, command (basename), and error snippet. "
+        "Use the optional 'status' param to filter — accepts a single status or comma-separated list "
+        "(e.g. 'scheduled', 'running', 'failed', 'succeeded', 'waiting', 'cancelled')."
+    ),
     required_params=[],
-    optional_params=["limit"],
+    optional_params=["limit", "status"],
 )
-def mage_scheduler_list_tasks(limit: Optional[str] = "20") -> str:
-    data = _get_json("/api/tasks")
+def mage_scheduler_list_tasks(
+    limit: Optional[str] = "20",
+    status: Optional[str] = None,
+) -> str:
+    path = "/api/tasks"
+    if status:
+        path = f"{path}?status={status}"
+    data = _get_json(path)
     if isinstance(data, dict) and data.get("error"):
         return json.dumps(data, indent=2)
     try:
         limit_value = int(limit or 20)
     except ValueError:
         limit_value = 20
+
     tasks = data[:limit_value]
     summary = [
         {
@@ -315,6 +475,8 @@ def mage_scheduler_list_tasks(limit: Optional[str] = "20") -> str:
             "status": task.get("status"),
             "run_at": task.get("run_at"),
             "action_name": task.get("action_name"),
+            "command": Path(task.get("command") or "").name or task.get("command"),
+            "error": ((task.get("error") or "")[:100]) or None,
         }
         for task in tasks
     ]
@@ -322,60 +484,50 @@ def mage_scheduler_list_tasks(limit: Optional[str] = "20") -> str:
 
 
 @function_schema(
-    name="mage_scheduler_list_actions",
-    description="List available scheduler actions",
-    required_params=[],
+    name="mage_scheduler_get_task",
+    description=(
+        "Get full detail for a task by ID — command, result output, error message, "
+        "retry count, dependency list, and all scheduling metadata. "
+        "Use this when list_tasks shows a failure or unexpected status and you need to understand why."
+    ),
+    required_params=["task_id"],
     optional_params=[],
 )
-def mage_scheduler_list_actions() -> str:
-    data = _get_json("/api/actions")
-    return json.dumps(data, indent=2)
-
-
-@function_schema(
-    name="mage_scheduler_get_validation",
-    description="Get scheduler validation rules and allowed directories",
-    required_params=[],
-    optional_params=[],
-)
-def mage_scheduler_get_validation() -> str:
-    data = _get_json("/api/validation")
-    return json.dumps(data, indent=2)
-
-
-@function_schema(
-    name="mage_scheduler_create_action",
-    description="Create a scheduler action",
-    required_params=["action_json"],
-    optional_params=[],
-)
-def mage_scheduler_create_action(action_json: str) -> str:
-    payload = json.loads(action_json)
-    result = _post_json("/api/actions", payload)
-    return json.dumps(result, indent=2)
-
-
-@function_schema(
-    name="mage_scheduler_update_action",
-    description="Update a scheduler action",
-    required_params=["action_id", "action_json"],
-    optional_params=[],
-)
-def mage_scheduler_update_action(action_id: str, action_json: str) -> str:
-    payload = json.loads(action_json)
+def mage_scheduler_get_task(task_id: str) -> str:
     try:
-        action_id_value = int(action_id)
+        task_id_value = int(task_id)
     except ValueError:
-        return json.dumps({"error": "invalid_action_id"}, indent=2)
-    resp = requests.put(f"{BASE_URL}/api/actions/{action_id_value}", json=payload, timeout=10)
-    if not resp.ok:
-        return json.dumps({"error": resp.text, "status_code": resp.status_code}, indent=2)
-    return json.dumps(resp.json(), indent=2)
+        return json.dumps({"error": "invalid_task_id"}, indent=2)
+    data = _get_json(f"/api/tasks/{task_id_value}")
+    return json.dumps(data, indent=2)
+
+
+@function_schema(
+    name="mage_scheduler_get_dependencies",
+    description=(
+        "Get the dependency graph for a task by ID. "
+        "Returns 'depends_on' (upstream task IDs this task requires) and "
+        "'blocking' (waiting task IDs that are held by this task)."
+    ),
+    required_params=["task_id"],
+    optional_params=[],
+)
+def mage_scheduler_get_dependencies(task_id: str) -> str:
+    try:
+        task_id_value = int(task_id)
+    except ValueError:
+        return json.dumps({"error": "invalid_task_id"}, indent=2)
+    data = _get_json(f"/api/tasks/{task_id_value}/dependencies")
+    return json.dumps(data, indent=2)
 
 
 @function_schema(
     name="mage_scheduler_cancel_task",
-    description="Cancel a scheduled or running task. Only works on tasks with status 'scheduled' or 'running'.",
+    description=(
+        "Cancel a scheduled, running, or waiting task by ID. "
+        "Cascades immediately: any tasks that depend on this one are failed. "
+        "Cancelled tasks cannot be un-cancelled; create a new task if needed."
+    ),
     required_params=["task_id"],
     optional_params=[],
 )
@@ -392,8 +544,145 @@ def mage_scheduler_cancel_task(task_id: str) -> str:
 
 
 @function_schema(
+    name="mage_scheduler_cleanup",
+    description=(
+        "Delete all terminal tasks (succeeded, failed, cancelled, blocked) to clear scheduler history. "
+        "Tasks with retain_result=true are preserved. "
+        "Use this to reduce noise after a session with many cancelled or duplicate tasks."
+    ),
+    required_params=[],
+    optional_params=[],
+)
+def mage_scheduler_cleanup() -> str:
+    result = _post_json("/api/tasks/cleanup", {})
+    return json.dumps(result, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Recurring tasks
+# ---------------------------------------------------------------------------
+
+@function_schema(
+    name="mage_scheduler_list_recurring",
+    description=(
+        "List all recurring (cron) tasks — name, cron expression, timezone, "
+        "action_name, enabled status, next_run_at, and last_run_at."
+    ),
+    required_params=[],
+    optional_params=[],
+)
+def mage_scheduler_list_recurring() -> str:
+    data = _get_json("/api/recurring")
+    return json.dumps(data, indent=2)
+
+
+@function_schema(
+    name="mage_scheduler_toggle_recurring",
+    description="Enable or disable a recurring task by ID. Returns the updated recurring task.",
+    required_params=["recurring_id"],
+    optional_params=[],
+)
+def mage_scheduler_toggle_recurring(recurring_id: str) -> str:
+    try:
+        recurring_id_value = int(recurring_id)
+    except ValueError:
+        return json.dumps({"error": "invalid_recurring_id"}, indent=2)
+    base_url = _current_base_url()
+    resp = requests.post(f"{base_url}/api/recurring/{recurring_id_value}/toggle", timeout=10)
+    if not resp.ok:
+        return json.dumps({"error": resp.text, "status_code": resp.status_code}, indent=2)
+    return json.dumps(resp.json(), indent=2)
+
+
+@function_schema(
+    name="mage_scheduler_delete_recurring",
+    description="Permanently delete a recurring task by ID. In-flight spawned tasks are not affected.",
+    required_params=["recurring_id"],
+    optional_params=[],
+)
+def mage_scheduler_delete_recurring(recurring_id: str) -> str:
+    try:
+        recurring_id_value = int(recurring_id)
+    except ValueError:
+        return json.dumps({"error": "invalid_recurring_id"}, indent=2)
+    base_url = _current_base_url()
+    resp = requests.delete(f"{base_url}/api/recurring/{recurring_id_value}", timeout=10)
+    if not resp.ok:
+        return json.dumps({"error": resp.text, "status_code": resp.status_code}, indent=2)
+    return json.dumps(resp.json(), indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Actions management
+# ---------------------------------------------------------------------------
+
+@function_schema(
+    name="mage_scheduler_list_actions",
+    description=(
+        "List all registered scheduler actions — name, command, allowed_env, retry policy, and allowed dirs. "
+        "Check this before scheduling to see what actions are available by name."
+    ),
+    required_params=[],
+    optional_params=[],
+)
+def mage_scheduler_list_actions() -> str:
+    data = _get_json("/api/actions")
+    return json.dumps(data, indent=2)
+
+
+@function_schema(
+    name="mage_scheduler_get_validation",
+    description=(
+        "Get allowed command and cwd directories from scheduler settings. "
+        "Check this when a command or path is rejected to understand what directories are permitted."
+    ),
+    required_params=[],
+    optional_params=[],
+)
+def mage_scheduler_get_validation() -> str:
+    data = _get_json("/api/validation")
+    return json.dumps(data, indent=2)
+
+
+@function_schema(
+    name="mage_scheduler_create_action",
+    description=(
+        "Register a new named action in the scheduler. "
+        "Actions are reusable vetted commands that can be scheduled by name. "
+        "action_json fields: name, command, description, default_cwd, allowed_env, "
+        "allowed_command_dirs, allowed_cwd_dirs, max_retries, retry_delay."
+    ),
+    required_params=["action_json"],
+    optional_params=[],
+)
+def mage_scheduler_create_action(action_json: str) -> str:
+    payload = json.loads(action_json)
+    result = _post_json("/api/actions", payload)
+    return json.dumps(result, indent=2)
+
+
+@function_schema(
+    name="mage_scheduler_update_action",
+    description="Update an existing scheduler action by ID. Replaces all fields (full update).",
+    required_params=["action_id", "action_json"],
+    optional_params=[],
+)
+def mage_scheduler_update_action(action_id: str, action_json: str) -> str:
+    payload = json.loads(action_json)
+    try:
+        action_id_value = int(action_id)
+    except ValueError:
+        return json.dumps({"error": "invalid_action_id"}, indent=2)
+    base_url = _current_base_url()
+    resp = requests.put(f"{base_url}/api/actions/{action_id_value}", json=payload, timeout=10)
+    if not resp.ok:
+        return json.dumps({"error": resp.text, "status_code": resp.status_code}, indent=2)
+    return json.dumps(resp.json(), indent=2)
+
+
+@function_schema(
     name="mage_scheduler_delete_action",
-    description="Delete a scheduler action",
+    description="Delete a scheduler action by ID.",
     required_params=["action_id"],
     optional_params=[],
 )
@@ -402,7 +691,8 @@ def mage_scheduler_delete_action(action_id: str) -> str:
         action_id_value = int(action_id)
     except ValueError:
         return json.dumps({"error": "invalid_action_id"}, indent=2)
-    resp = requests.delete(f"{BASE_URL}/api/actions/{action_id_value}", timeout=10)
+    base_url = _current_base_url()
+    resp = requests.delete(f"{base_url}/api/actions/{action_id_value}", timeout=10)
     if not resp.ok:
         return json.dumps({"error": resp.text, "status_code": resp.status_code}, indent=2)
     return json.dumps(resp.json(), indent=2)

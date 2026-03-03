@@ -15,13 +15,35 @@ This document defines the LLM-facing contract for creating tasks.
 ### Schedule intent
 `POST /api/tasks/intent`
 
+Accepts `replace_existing: true` at the top level to cancel any existing `scheduled` or `waiting` tasks with the same description before creating the new one. Response includes `replaced_task_ids` when tasks were cancelled.
+
 ### Run now
 `POST /api/tasks/run_now`
+
+### List tasks
+`GET /api/tasks`
+
+Optional query param: `?status=scheduled,running` — comma-separated status filter. Returns all tasks when omitted.
+
+### Get task
+`GET /api/tasks/{task_id}`
+
+Returns full `TaskRead` including `command`, `result`, `error`, `retry_count`, `depends_on`, and all scheduling metadata.
+
+### Task stats
+`GET /api/tasks/stats`
+
+Returns `{"total": N, "by_status": {"scheduled": N, "running": N, ...}}`.
 
 ### Cancel task
 `POST /api/tasks/{task_id}/cancel`
 
 Only valid for tasks with status `scheduled`, `running`, or `waiting`. Returns `{"status": "cancelled", "task_id": N}` or a 400 if the task is already in a terminal state. Cancelling a task immediately fails all tasks that depend on it (`waiting` dependents become `failed`).
+
+### Bulk cleanup
+`POST /api/tasks/cleanup`
+
+Deletes all terminal tasks (succeeded, failed, cancelled, blocked). Tasks with `retain_result=true` are preserved. Returns `{"deleted": N}`.
 
 ### Task dependencies
 `GET /api/tasks/{task_id}/dependencies`
@@ -39,6 +61,15 @@ Returns `{"task_id": N, "depends_on": [...], "blocking": [...]}` where `depends_
 
 ### Delete action
 `DELETE /api/actions/{action_id}`
+
+### Recurring tasks
+```
+GET    /api/recurring              list all recurring tasks
+POST   /api/recurring              create recurring task
+PUT    /api/recurring/{id}         update recurring task (full replace)
+DELETE /api/recurring/{id}         delete recurring task
+POST   /api/recurring/{id}/toggle  enable / disable
+```
 
 ## Intent schema (v1)
 ```json
@@ -61,6 +92,7 @@ Returns `{"task_id": N, "depends_on": [...], "blocking": [...]}` where `depends_
     "cron": null,
     "depends_on": null
   },
+  "replace_existing": false,
   "meta": {
     "source": "mage-lab-llm",
     "user_confirmed": true
@@ -99,15 +131,6 @@ Response:
 }
 ```
 
-### Recurring task management
-```
-GET    /api/recurring              list all recurring tasks
-POST   /api/recurring              create recurring task
-PUT    /api/recurring/{id}         update recurring task (full replace)
-DELETE /api/recurring/{id}         delete recurring task
-POST   /api/recurring/{id}/toggle  enable / disable
-```
-
 ### Rules
 - Prefer `action_name` when possible. It maps to a user-defined Action.
 - Use `command` only if no Action exists; it must be an absolute executable path.
@@ -126,6 +149,7 @@ POST   /api/recurring/{id}/toggle  enable / disable
   - **All succeeded** → task is scheduled immediately (`status: "scheduled"`).
   - **Any failed/cancelled** → task is created as `failed` immediately (`warnings: ["dependency_failed"]`).
   - **At least one still in-flight** → task is created as `waiting` (`status: "waiting"`); it will be auto-scheduled when all deps succeed, or immediately failed if any dep fails/cancels.
+- `replace_existing` (top-level boolean, default `false`) — when `true`, any existing `scheduled` or `waiting` tasks with the same `description` are cancelled (and their Celery jobs revoked) before the new task is created. The response includes `replaced_task_ids: [...]` (null when nothing was replaced). Running and terminal tasks are not affected. Not applicable to cron/recurring intents.
 
 ## Example preview response
 ```json
@@ -161,7 +185,8 @@ POST   /api/recurring/{id}/toggle  enable / disable
   "cwd": "/usr/local/bin",
   "env_keys": ["PROJECT_ID"],
   "notify_on_complete": false,
-  "warnings": []
+  "warnings": [],
+  "replaced_task_ids": null
 }
 ```
 

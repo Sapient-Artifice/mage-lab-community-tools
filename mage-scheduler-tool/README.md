@@ -27,22 +27,43 @@ MAGE_SCHEDULER_PYTHON=/absolute/path/to/python
 If you use a dedicated venv, set `MAGE_SCHEDULER_PYTHON` to that venv's Python.
 
 ## Tool Functions
+
+### Orientation
+- `mage_scheduler_context()` — bootstrap: service status + actions + recent tasks + stats + validation in one call
+- `mage_scheduler_status()` — lightweight liveness check
+
+### Service lifecycle
 - `mage_scheduler_start(port)`
 - `mage_scheduler_stop()`
-- `mage_scheduler_status()`
-- `mage_scheduler_open_dashboard()`
-- `mage_scheduler_open_actions()`
-- `mage_scheduler_open_settings()`
-- `mage_scheduler_preview_intent(intent_json)`
+
+### Scheduling
 - `mage_scheduler_schedule_intent(intent_json)`
+- `mage_scheduler_preview_intent(intent_json)`
 - `mage_scheduler_run_now(task_json)`
+
+### Task inspection & management
+- `mage_scheduler_list_tasks(limit, status)` — optional status filter (e.g. `"scheduled,running"`)
+- `mage_scheduler_get_task(task_id)` — full task detail including result, error, retry count
+- `mage_scheduler_get_dependencies(task_id)` — dependency graph for a task
 - `mage_scheduler_cancel_task(task_id)`
-- `mage_scheduler_list_tasks(limit)`
+- `mage_scheduler_cleanup()` — delete all terminal tasks
+
+### Recurring tasks
+- `mage_scheduler_list_recurring()`
+- `mage_scheduler_toggle_recurring(recurring_id)`
+- `mage_scheduler_delete_recurring(recurring_id)`
+
+### Actions management
 - `mage_scheduler_list_actions()`
-- `mage_scheduler_get_validation()`
 - `mage_scheduler_create_action(action_json)`
 - `mage_scheduler_update_action(action_id, action_json)`
 - `mage_scheduler_delete_action(action_id)`
+
+### Validation & dashboard
+- `mage_scheduler_get_validation()`
+- `mage_scheduler_open_dashboard()`
+- `mage_scheduler_open_actions()`
+- `mage_scheduler_open_settings()`
 
 ## Notes
 - Logs are written to `~/.mage_scheduler/api.log` and `~/.mage_scheduler/worker.log` inside your workspace.

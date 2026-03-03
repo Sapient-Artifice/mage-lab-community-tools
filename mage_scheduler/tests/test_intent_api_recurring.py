@@ -232,3 +232,93 @@ class TestRecurringResponseStructure:
             action_name="rec_retry_action", command=None, max_retries=7
         ))
         assert resp.json()["max_retries"] == 7
+
+
+# ---------------------------------------------------------------------------
+# Blank description validation (recurring_name_required)
+# ---------------------------------------------------------------------------
+
+class TestRecurringBlankDescription:
+    def test_empty_description_returns_400(self, api_client):
+        """An empty description string must be rejected with recurring_name_required."""
+        client, _ = api_client
+        payload = {
+            "intent_version": "v1",
+            "task": {"description": "", "cron": VALID_CRON, "command": "echo ok"},
+        }
+        resp = client.post(INTENT_URL, json=payload)
+        assert resp.status_code == 400
+        codes = [e["code"] for e in resp.json()["detail"]["errors"]]
+        assert "recurring_name_required" in codes
+
+    def test_whitespace_only_description_returns_400(self, api_client):
+        """A whitespace-only description must also be rejected."""
+        client, _ = api_client
+        payload = {
+            "intent_version": "v1",
+            "task": {"description": "   ", "cron": VALID_CRON, "command": "echo ok"},
+        }
+        resp = client.post(INTENT_URL, json=payload)
+        assert resp.status_code == 400
+        codes = [e["code"] for e in resp.json()["detail"]["errors"]]
+        assert "recurring_name_required" in codes
+
+    def test_nonempty_description_succeeds(self, api_client):
+        """A normal non-blank description is still accepted."""
+        client, _ = api_client
+        resp = client.post(INTENT_URL, json=_cron_payload(description="valid name"))
+        assert resp.json()["status"] == "recurring_scheduled"
+
+
+# ---------------------------------------------------------------------------
+# scheduled_at_local reflects user timezone (not UTC)
+# ---------------------------------------------------------------------------
+
+class TestRecurringScheduledAtLocal:
+    def test_scheduled_at_local_uses_requested_timezone(self, api_client):
+        """scheduled_at_local must be in the user's timezone, not UTC.
+
+        Cron '0 9 * * 1' = Monday 09:00 local time.
+        In UTC+10 (Australia/Sydney) the next Monday 09:00 local is 23:00 UTC the previous Sunday.
+        scheduled_at_local must show 09:xx, NOT 23:xx.
+        """
+        client, _ = api_client
+        resp = client.post(INTENT_URL, json=_cron_payload(
+            description="tz test task",
+            cron="0 9 * * 1",
+            timezone="Australia/Sydney",
+        ))
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "recurring_scheduled"
+        # Local time must be 09:00 — the cron-defined local hour
+        local_time = data["scheduled_at_local"]
+        assert local_time[11:16] == "09:00", (
+            f"scheduled_at_local should show 09:00 in Sydney time, got: {local_time}"
+        )
+
+    def test_scheduled_at_utc_is_utc(self, api_client):
+        """scheduled_at_utc must carry a Z suffix and be consistent with the cron schedule."""
+        client, _ = api_client
+        resp = client.post(INTENT_URL, json=_cron_payload(
+            description="utc suffix test",
+            cron="0 0 * * *",
+            timezone="UTC",
+        ))
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["scheduled_at_utc"].endswith("Z")
+
+    def test_scheduled_at_local_utc_timezone_matches_utc(self, api_client):
+        """When timezone is UTC, scheduled_at_local and scheduled_at_utc should agree."""
+        client, _ = api_client
+        resp = client.post(INTENT_URL, json=_cron_payload(
+            description="utc agree test",
+            cron="0 12 * * *",
+            timezone="UTC",
+        ))
+        assert resp.status_code == 200
+        data = resp.json()
+        local_hhmm = data["scheduled_at_local"][11:16]
+        utc_hhmm = data["scheduled_at_utc"][11:16]
+        assert local_hhmm == utc_hhmm == "12:00"

@@ -69,6 +69,7 @@ class TaskIntentEnvelope(BaseModel):
     intent_version: str
     task: TaskIntent
     meta: dict | None = None
+    replace_existing: bool = False
 
 
 class ErrorDetail(BaseModel):
@@ -98,6 +99,7 @@ class TaskIntentResponse(BaseModel):
     next_run_at: str | None = None
     depends_on: list[int] | None = None
     retain_result: bool = False
+    replaced_task_ids: list[int] | None = None
 
 
 class RecurringTaskCreate(BaseModel):

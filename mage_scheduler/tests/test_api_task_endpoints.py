@@ -90,6 +90,88 @@ class TestListTasks:
         # t2 was created after t1 so it should be first
         assert ids.index(id2) < ids.index(id1)
 
+    def test_status_filter_single_status(self, api_client):
+        """?status=scheduled returns only scheduled tasks."""
+        client, factory = api_client
+        s = _session(factory)
+        try:
+            t = make_task(s, status="scheduled")
+            make_task(s, status="failed")
+            make_task(s, status="cancelled")
+            s.commit()
+            scheduled_id = t.id
+        finally:
+            s.close()
+
+        resp = client.get("/api/tasks?status=scheduled")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["id"] == scheduled_id
+        assert data[0]["status"] == "scheduled"
+
+    def test_status_filter_comma_separated(self, api_client):
+        """?status=scheduled,running returns tasks matching either status."""
+        client, factory = api_client
+        s = _session(factory)
+        try:
+            t1 = make_task(s, status="scheduled")
+            t2 = make_task(s, status="running")
+            make_task(s, status="failed")
+            s.commit()
+            active_ids = {t1.id, t2.id}
+        finally:
+            s.close()
+
+        resp = client.get("/api/tasks?status=scheduled,running")
+        assert resp.status_code == 200
+        returned_ids = {t["id"] for t in resp.json()}
+        assert returned_ids == active_ids
+
+    def test_status_filter_no_match_returns_empty(self, api_client):
+        """?status=running returns empty list when no running tasks exist."""
+        client, factory = api_client
+        s = _session(factory)
+        try:
+            make_task(s, status="scheduled")
+            s.commit()
+        finally:
+            s.close()
+
+        resp = client.get("/api/tasks?status=running")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_status_filter_unknown_status_returns_empty(self, api_client):
+        """An unrecognised status value returns an empty list, not an error."""
+        client, factory = api_client
+        s = _session(factory)
+        try:
+            make_task(s, status="scheduled")
+            s.commit()
+        finally:
+            s.close()
+
+        resp = client.get("/api/tasks?status=does_not_exist")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_no_status_filter_returns_all(self, api_client):
+        """Omitting ?status still returns every task (backwards compatibility)."""
+        client, factory = api_client
+        s = _session(factory)
+        try:
+            make_task(s, status="scheduled")
+            make_task(s, status="failed")
+            make_task(s, status="cancelled")
+            s.commit()
+        finally:
+            s.close()
+
+        resp = client.get("/api/tasks")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 3
+
 
 # ---------------------------------------------------------------------------
 # GET /api/tasks/{id}
