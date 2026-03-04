@@ -203,6 +203,6 @@ def _schedule_waiting_task(session, wt: TaskRequest) -> None:
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     run_at = wt.run_at if wt.run_at and wt.run_at > now_utc else now_utc
     wt.status = "scheduled"
-    session.flush()
+    session.commit()  # commit before dispatch so Celery sees the updated row
     result = run_command_at.apply_async(args=[wt.id, wt.command], eta=run_at)
     wt.celery_task_id = result.id

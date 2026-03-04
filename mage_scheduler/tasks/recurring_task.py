@@ -84,7 +84,13 @@ def _spawn_task(session, rt: RecurringTask, now_utc: datetime) -> None:
         recurring_task_id=rt.id,
     )
     session.add(task_request)
-    session.flush()  # get task_request.id
+    session.flush()   # get task_request.id
+
+    # Commit the task row before dispatching to Celery. apply_async puts the
+    # job on the broker immediately; if Celery picks it up before the outer
+    # session.commit() the worker's session.get() returns None and the task
+    # silently fails with {"error": "task_request_not_found"}.
+    session.commit()
 
     result = run_command_at.apply_async(
         args=[task_request.id, command],

@@ -9,7 +9,7 @@ uv run pytest tests/ -v
 
 No running Redis, Celery worker, or API server required. All tests use an in-memory SQLite database and mock Celery dispatch.
 
-**397 tests, all passing.**
+**398 tests, all passing.**
 
 ---
 
@@ -139,11 +139,11 @@ Unit tests for `check_waiting_tasks` (the Celery beat task):
 - Ignores non-waiting tasks
 - Multiple tasks processed in one beat
 
-### Recurring beat task (`test_recurring_beat_task.py`) — 17 tests
+### Recurring beat task (`test_recurring_beat_task.py`) — 18 tests
 Unit tests for the recurring Celery beat task:
 - `_compute_next_run` — timezone-aware cron computation
 - `compute_initial_next_run` — returns a future UTC datetime
-- `_spawn_task` — creates `TaskRequest`, dispatches to Celery, advances `next_run_at`, resolves action command, skips on missing action/command
+- `_spawn_task` — creates `TaskRequest`, dispatches to Celery, advances `next_run_at`, resolves action command, skips on missing action/command; verifies task row is committed before `apply_async` (guards against task_request_not_found race condition)
 - `check_recurring_tasks` — fires due tasks, ignores future/disabled tasks, handles multiple due
 
 ### Notification task (`test_notification_task.py`) — 21 tests

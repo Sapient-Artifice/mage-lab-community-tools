@@ -103,6 +103,45 @@ class TestSpawnTask:
         assert tasks[0].status == "scheduled"
         s.close()
 
+    def test_task_row_committed_before_celery_dispatch(self, rec_mem_db, monkeypatch):
+        """The TaskRequest row must be visible in the DB before apply_async is called.
+
+        Race condition: if apply_async fires before session.commit(), Celery can
+        pick up the job and call session.get(TaskRequest, id) before the row exists,
+        returning None and silently failing with {"error": "task_request_not_found"}.
+        """
+        import tasks.recurring_task as rct
+        from tasks.recurring_task import _spawn_task
+        from models import TaskRequest
+
+        visibility_at_dispatch: list[bool] = []
+
+        def fake_apply_async(*args, **kwargs):
+            # At dispatch time, open a fresh session and check the row exists
+            s = rec_mem_db()
+            task_id = kwargs.get("args", [None])[0] if kwargs.get("args") else None
+            if task_id is None and args:
+                task_id = args[0][0] if args[0] else None
+            row = s.get(TaskRequest, task_id)
+            visibility_at_dispatch.append(row is not None)
+            s.close()
+            fake = MagicMock()
+            fake.id = "check-celery-id"
+            return fake
+
+        monkeypatch.setattr(rct.run_command_at, "apply_async", fake_apply_async)
+
+        s = _session(rec_mem_db)
+        rt = make_recurring(s, command="echo race")
+        s.commit()
+
+        _spawn_task(s, rt, datetime.utcnow())
+
+        assert visibility_at_dispatch == [True], (
+            "TaskRequest row was not committed before apply_async was called"
+        )
+        s.close()
+
     def test_celery_dispatched_with_correct_args(self, rec_mem_db, monkeypatch):
         import tasks.recurring_task as rct
         from tasks.recurring_task import _spawn_task
