@@ -293,6 +293,41 @@ class TestRunCommandAt:
         nt.run_command_at(task_id, "echo ok")
         mock_notify.assert_not_called()
 
+    def test_notify_suppressed_for_ask_assistant_action(self, nt_mem_db, monkeypatch):
+        """_send_completion_notification must not fire for ask_assistant tasks.
+
+        The action script itself sends the message; a second automated notification
+        would double-fire the ask_assistant endpoint.
+        """
+        import tasks.notification_task as nt
+        from models import TaskRequest
+
+        factory = nt_mem_db
+        s = _session(factory)
+        task = TaskRequest(
+            description="ping assistant",
+            command="python3 ask_assistant.py",
+            run_at=datetime.utcnow(),
+            status="scheduled",
+            max_retries=0,
+            retry_count=0,
+            notify_on_complete=1,
+            action_name="ask_assistant",
+        )
+        s.add(task)
+        s.commit()
+        task_id = task.id
+        s.close()
+
+        _make_subprocess(monkeypatch, returncode=0)
+        _mock_apply_async(monkeypatch)
+
+        mock_notify = MagicMock()
+        monkeypatch.setattr(nt, "_send_completion_notification", mock_notify)
+
+        nt.run_command_at(task_id, "python3 ask_assistant.py")
+        mock_notify.assert_not_called()
+
     def test_task_not_found_returns_error_dict(self, nt_mem_db, monkeypatch):
         import tasks.notification_task as nt
         _make_subprocess(monkeypatch)

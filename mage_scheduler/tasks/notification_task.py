@@ -125,7 +125,7 @@ def run_command_at(task_request_id: int, command: str):
 
             _trigger_dependents(task_request_id, final_status)
 
-            if notify:
+            if notify and action_name != "ask_assistant":
                 _send_completion_notification(task_request, result.returncode)
 
     return {

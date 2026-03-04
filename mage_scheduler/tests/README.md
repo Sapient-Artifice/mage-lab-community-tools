@@ -9,7 +9,7 @@ uv run pytest tests/ -v
 
 No running Redis, Celery worker, or API server required. All tests use an in-memory SQLite database and mock Celery dispatch.
 
-**396 tests, all passing.**
+**397 tests, all passing.**
 
 ---
 
@@ -146,10 +146,11 @@ Unit tests for the recurring Celery beat task:
 - `_spawn_task` — creates `TaskRequest`, dispatches to Celery, advances `next_run_at`, resolves action command, skips on missing action/command
 - `check_recurring_tasks` — fires due tasks, ignores future/disabled tasks, handles multiple due
 
-### Notification task (`test_notification_task.py`) — 20 tests
+### Notification task (`test_notification_task.py`) — 21 tests
 Unit tests for `run_command_at` (the Celery execution task):
 - Retry logic on non-zero exit codes
 - Completion notification via `ask_assistant` when `notify_on_complete` is set
+- Notification suppressed when `action_name == "ask_assistant"` (the action script sends its own message; a second notification would double-fire the endpoint)
 - Environment variable injection
 - Notification content: task ID, status, exit code, output
 
