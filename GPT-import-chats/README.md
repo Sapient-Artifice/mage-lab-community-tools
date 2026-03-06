@@ -181,7 +181,6 @@ Running the import more than once on the same export is safe. Files are matched 
 
 ## Notes
 
-- Imported conversations are **read-only historical records**. The system message marks them as such. They will appear in Mage's chat list and are fully searchable, but are not intended to be resumed as active sessions.
 - All output is UTF-8 encoded with readable JSON formatting (`indent=2`).
 - Control characters in message text are stripped to ensure valid JSON output.
 
@@ -189,7 +188,7 @@ Running the import more than once on the same export is safe. Files are matched 
 
 ## Contributing
 
-This tool is part of the [Mage Lab community tools](https://github.com/magelab) collection. Community tools are loaded by Mage when `EXTRA_TOOLS=true` is set and are intended to be independently useful scripts that any Mage user can drop in and run.
+This tool is part of the [Mage Lab community tools](https://github.com/magelab) collection. 
 
 If OpenAI changes their export format, the relevant sections to update are `_extract_content()` and `_get_active_path()` in the script.
 
