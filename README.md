@@ -37,6 +37,9 @@ Brave Search tool that calls Brave's REST API directly using your own API key, b
 ### [GrepGlob](./GrepGlob/GrepGlob_README.md)
 Two file system search utilities: `GlobTool` for fast pattern-based file matching and `GrepTool` for content search across files.
 
+### [mage-esp32-cam](./mage-esp32-cam/README.md)
+Capture JPEG snapshots from ESP32-CAM modules over WiFi, save them to disk, and open them in a browser tab. Supports named cameras via env vars (`ESP32_CAM_<NAME>`) or direct URL per-request.
+
 ### [mageMap](./mageMap/MAGE_MAPS.md)
 Interactive Leaflet-based routing map that opens in the browser (or embedded in mage lab), with address lookup and turn-by-turn routing.
 
