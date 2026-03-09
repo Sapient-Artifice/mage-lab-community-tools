@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
 import requests
 
@@ -63,6 +64,25 @@ def _resolve_url(camera: Optional[str], url: Optional[str]) -> tuple[str, str]:
     )
 
 
+def _derive_stream_url(capture_url: str) -> str:
+    """
+    Derive the MJPEG stream URL from a capture URL.
+
+    The Espressif CameraWebServer firmware runs two HTTP servers:
+      - Port 80 (or user-configured): capture endpoint (/capture)
+      - Port 81 (capture_port + 1):   stream endpoint (/stream)
+
+    This function replaces the path with /stream and increments the port by 1
+    to match that convention. Pass stream_url= directly to esp32_cam_stream()
+    to override if your firmware uses a different layout.
+    """
+    parsed = urlparse(capture_url)
+    capture_port = parsed.port or 80
+    stream_port = capture_port + 1
+    netloc = f"{parsed.hostname}:{stream_port}"
+    return urlunparse(parsed._replace(netloc=netloc, path="/stream"))
+
+
 def _named_cameras() -> dict[str, str]:
     """Return all named cameras from env (excludes reserved suffixes)."""
     cameras = {}
@@ -77,7 +97,7 @@ def _named_cameras() -> dict[str, str]:
 
 
 def _local_subnet() -> Optional[str]:
-    """Best-effort: return the /24 subnet of the default outbound interface (e.g. '10.1.0')."""
+    """Best-effort: return the /24 subnet of the default outbound interface (e.g. '192.168.1')."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -106,6 +126,91 @@ def _probe_host(host: str, timeout: float) -> Optional[dict]:
     return None
 
 
+def _render_stream_html(stream_url: str, label: str) -> str:
+    """Generate a minimal HTML page that displays an MJPEG stream via <img>."""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32-CAM — {label}</title>
+  <style>
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      background: #111;
+      color: #ccc;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }}
+    header {{
+      width: 100%;
+      padding: 6px 12px;
+      background: #1a1a1a;
+      border-bottom: 1px solid #333;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }}
+    .dot {{
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #e53;
+      animation: pulse 1.2s ease-in-out infinite;
+    }}
+    @keyframes pulse {{
+      0%, 100% {{ opacity: 1; }}
+      50% {{ opacity: 0.3; }}
+    }}
+    .label {{ font-size: 13px; color: #aaa; }}
+    .url {{ font-size: 11px; color: #555; margin-left: auto; }}
+    .stream-wrap {{
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 0;
+    }}
+    img {{
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
+    }}
+    .error {{
+      display: none;
+      color: #e53;
+      font-size: 13px;
+      text-align: center;
+      padding: 16px;
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="dot"></div>
+    <span class="label">ESP32-CAM &mdash; {label}</span>
+    <span class="url">{stream_url}</span>
+  </header>
+  <div class="stream-wrap">
+    <img id="stream" src="{stream_url}" alt="MJPEG stream"
+         onerror="document.getElementById('err').style.display='block';
+                  document.getElementById('stream').style.display='none';">
+    <p class="error" id="err">
+      Stream unavailable.<br>
+      Check that the camera is reachable at {stream_url}
+    </p>
+  </div>
+</body>
+</html>
+"""
+
+
 @function_schema(
     name="esp32_cam_capture",
     description=(
@@ -127,8 +232,8 @@ def esp32_cam_capture(
     Capture a snapshot from an ESP32-CAM.
 
     Args:
-        camera: Named camera (matches ESP32_CAM_<NAME> env var, e.g. "front_door")
-        url:    Direct capture URL (overrides camera name lookup)
+        camera:   Named camera (matches ESP32_CAM_<NAME> env var, e.g. "front_door")
+        url:      Direct capture URL (overrides camera name lookup)
         filename: Output filename (default: esp32cam_<camera>_<timestamp>.jpg)
         save_dir: Directory to save into (default: ESP32_CAM_SAVE_DIR or workspace)
         open_after: Open the saved image in a tab ("true"/"false", default "true")
@@ -138,7 +243,6 @@ def esp32_cam_capture(
     except ValueError as exc:
         return str(exc)
 
-    # Build output path
     dest_dir = Path(save_dir).expanduser().resolve() if save_dir else _get_save_dir()
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -149,7 +253,6 @@ def esp32_cam_capture(
 
     dest = dest_dir / filename
 
-    # Fetch snapshot
     try:
         resp = requests.get(cam_url, timeout=_get_timeout())
         resp.raise_for_status()
@@ -192,6 +295,69 @@ def esp32_cam_capture(
 
 
 @function_schema(
+    name="esp32_cam_stream",
+    description=(
+        "Open a live MJPEG stream from an ESP32-CAM in a tab. "
+        "Generates an HTML viewer and opens it. The stream URL is derived from the "
+        "capture URL by replacing the path with /stream, or can be provided directly. "
+        "Resolve camera from: stream_url arg > url arg > camera name "
+        "(ESP32_CAM_<NAME> env var) > ESP32_CAM_DEFAULT env var."
+    ),
+    required_params=[],
+    optional_params=["camera", "url", "stream_url"],
+)
+def esp32_cam_stream(
+    camera: Optional[str] = None,
+    url: Optional[str] = None,
+    stream_url: Optional[str] = None,
+) -> str:
+    """
+    Open a live MJPEG stream from an ESP32-CAM in a viewer tab.
+
+    Args:
+        camera:     Named camera (matches ESP32_CAM_<NAME> env var)
+        url:        Capture URL to derive stream URL from (e.g. http://192.168.1.101/capture)
+        stream_url: Direct MJPEG stream URL — skips derivation (e.g. http://192.168.1.101/stream)
+    """
+    # Resolve the base (capture) URL first, then derive stream URL unless given directly
+    if stream_url:
+        resolved_stream = stream_url.strip()
+        source = "direct"
+    else:
+        try:
+            capture_url, source = _resolve_url(camera, url)
+        except ValueError as exc:
+            return str(exc)
+        resolved_stream = _derive_stream_url(capture_url)
+
+    label = source if source != "direct" else urlparse(resolved_stream).hostname or "camera"
+    label_display = label.replace("_", " ").title()
+
+    # Write the HTML viewer to the save dir; overwrite per camera so tabs don't accumulate
+    save_dir = _get_save_dir()
+    save_dir.mkdir(parents=True, exist_ok=True)
+    slug = label.lower().replace(" ", "_").replace("-", "_")
+    html_path = save_dir / f"esp32cam_stream_{slug}.html"
+
+    try:
+        html_path.write_text(_render_stream_html(resolved_stream, label_display), encoding="utf-8")
+    except OSError as exc:
+        return f"Failed to write stream viewer: {exc}"
+
+    open_tab(str(html_path))
+
+    return json.dumps(
+        {
+            "stream_url": resolved_stream,
+            "viewer": str(html_path),
+            "source": source,
+            "opened": True,
+        },
+        indent=2,
+    )
+
+
+@function_schema(
     name="esp32_cam_list_cameras",
     description=(
         "List all named ESP32-CAM cameras configured via ESP32_CAM_<NAME> env vars, "
@@ -216,7 +382,7 @@ def esp32_cam_list_cameras() -> str:
                 "cameras": [],
                 "hint": (
                     "No cameras configured. Add ESP32_CAM_<NAME>=<url> entries "
-                    "to your env file, e.g. ESP32_CAM_FRONT_DOOR=http://10.1.0.166/capture. "
+                    "to your env file, e.g. ESP32_CAM_FRONT_DOOR=http://192.168.1.101/capture. "
                     "Use esp32_cam_scan_network() to discover cameras on your local network."
                 ),
             },
@@ -248,7 +414,7 @@ def esp32_cam_scan_network(
     Scan the local /24 subnet for hosts that serve JPEG images on known ESP32-CAM paths.
 
     Args:
-        subnet:  Network prefix to scan, e.g. "10.1.0" (default: auto-detected /24)
+        subnet:  Network prefix to scan, e.g. "192.168.1" (default: auto-detected /24)
         timeout: Per-host HTTP timeout in seconds (default: 1.0)
     """
     if subnet:
@@ -294,7 +460,7 @@ def esp32_cam_scan_network(
             "found": found,
             "hint": (
                 "To name a camera, add ESP32_CAM_<NAME>=<url> to your env file, "
-                "e.g. ESP32_CAM_FRONT_DOOR=http://10.1.0.166/capture"
+                "e.g. ESP32_CAM_FRONT_DOOR=http://192.168.1.101/capture"
             ),
         },
         indent=2,

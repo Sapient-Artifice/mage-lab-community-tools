@@ -60,6 +60,33 @@ Uses 64 parallel workers; scanning a full /24 takes roughly 2–4 seconds.
 }
 ```
 
+### `esp32_cam_stream(camera, url, stream_url)`
+
+Opens a live MJPEG stream in a tab. Generates a minimal HTML viewer with `<img src="{stream_url}">` — the format the ESP32-CAM firmware serves (`multipart/x-mixed-replace`), which browsers handle natively.
+
+The stream URL is derived automatically from the capture URL using the Espressif CameraWebServer convention: port is incremented by 1 (80→81) and the path is replaced with `/stream`. Pass `stream_url` directly to override this if your firmware uses a different layout.
+
+| Arg | Required | Description |
+|---|---|---|
+| `camera` | No | Named camera (looks up `ESP32_CAM_<NAME>`) |
+| `url` | No | Capture URL to derive stream from (e.g. `http://192.168.1.101/capture`) |
+| `stream_url` | No | Direct MJPEG stream URL — skips derivation (e.g. `http://192.168.1.101/stream`) |
+
+**URL resolution order:** `stream_url` arg → derive from `url` arg → derive from `camera` env lookup → derive from `ESP32_CAM_DEFAULT`
+
+The viewer HTML is written to the workspace dir as `esp32cam_stream_<label>.html` and overwritten on each call, so repeated opens don't accumulate files.
+
+**Returns JSON:**
+
+```json
+{
+  "stream_url": "http://192.168.1.101:81/stream",
+  "viewer": "/home/user/workspace/esp32cam_stream_front_door.html",
+  "source": "front_door",
+  "opened": true
+}
+```
+
 ### `esp32_cam_capture(camera, url, filename, save_dir, open_after)`
 
 Fetches a snapshot, saves it to disk, and opens it in a tab.
@@ -104,13 +131,17 @@ Lists all named cameras configured via env vars. Does not probe the network — 
 ## Typical workflow
 
 1. **Discover:** _"Scan the network for cameras"_ → finds `192.168.1.101`
-2. **Capture directly:** _"Capture http://192.168.1.101/capture"_ → saves JPEG, opens in tab
-3. **Name it (optional):** add `ESP32_CAM_LAB=http://192.168.1.101/capture` to env file
-4. **Use by name:** _"Take a snapshot from the lab camera"_
+2. **Stream:** _"Open a live stream from http://192.168.1.101/capture"_ → derives `http://192.168.1.101:81/stream`, opens viewer tab
+3. **Capture:** _"Take a snapshot from http://192.168.1.101/capture"_ → saves JPEG, opens in tab
+4. **Name it (optional):** add `ESP32_CAM_LAB=http://192.168.1.101/capture` to env file
+5. **Use by name:** _"Stream the lab camera"_ / _"Take a snapshot from the lab camera"_
 
 ## Notes
 
-- The `/capture` endpoint returns a single JPEG. MJPEG stream URLs (e.g. `/stream`) are not supported — point to `/capture`.
-- If the camera returns an unexpected `Content-Type`, the tool reports it rather than saving the response.
-- Images are saved with a timestamp in the filename so repeated captures don't overwrite each other.
+- Capture uses `/capture` (single JPEG); streaming uses `/stream` (MJPEG). Pass either endpoint — the tool derives the correct one automatically.
+- MJPEG streaming works via `<img src="{stream_url}">` in the viewer HTML. This is the native browser mechanism for `multipart/x-mixed-replace` streams as served by the Espressif ESP32-CAM firmware; no extra libraries needed.
+- If the camera returns an unexpected `Content-Type` on capture, the tool reports it rather than saving the response.
+- Captured images include a timestamp in the filename so repeated captures don't overwrite each other.
+- Stream viewer HTML is overwritten per camera on each call (no file accumulation).
+- The network scan uses 64 parallel workers with a 1-second per-host timeout; scanning a /24 takes roughly 2–4 seconds.
 - The Pylance warnings about `config`, `utils.functions_metadata`, and `ws_manager` are expected — these are Mage Lab internal modules resolved at runtime, not available in local dev environments.
