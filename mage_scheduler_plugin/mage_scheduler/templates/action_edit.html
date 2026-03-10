@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Action - Mage Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { text-align: center; }
+        .muted { color: #777; font-size: 0.9em; }
+        input, textarea { width: 100%; }
+        fieldset { border: 1px solid #ddd; padding: 12px; border-radius: 6px; }
+    </style>
+</head>
+<body>
+    <h1>Edit Action</h1>
+    <p class="muted"><a href="/actions">Back to actions</a></p>
+    {% if error %}
+        <p style="color: #b00020;">Error: {{ error }}</p>
+    {% endif %}
+    <form action="/actions/{{ action.id }}/edit" method="post">
+        <fieldset>
+            <legend>Edit Action</legend>
+            <div style="margin-bottom: 8px;">
+                <label for="name">Name</label><br>
+                <input id="name" name="name" type="text" required value="{{ form.name if form else action.name }}">
+            </div>
+            <div style="margin-bottom: 8px;">
+                <label for="description">Description</label><br>
+                <input id="description" name="description" type="text" value="{{ form.description if form else (action.description or '') }}">
+            </div>
+            <div style="margin-bottom: 8px;">
+                <label for="command">Command</label><br>
+                <input id="command" name="command" type="text" required value="{{ form.command if form else action.command }}">
+            </div>
+            <div style="margin-bottom: 8px;">
+                <label for="default_cwd">Default Working Directory</label><br>
+                <input id="default_cwd" name="default_cwd" type="text" value="{{ form.default_cwd if form else (action.default_cwd or '') }}">
+            </div>
+            <div style="margin-bottom: 8px;">
+                <label for="allowed_env">Allowed Env Vars (comma-separated)</label><br>
+                <input id="allowed_env" name="allowed_env" type="text" value="{{ form.allowed_env if form else ((action.allowed_env or []) | join(', ')) }}">
+            </div>
+            <div style="margin-bottom: 8px;">
+                <label for="allowed_command_dirs">Allowed Command Dirs (comma-separated)</label><br>
+                <input id="allowed_command_dirs" name="allowed_command_dirs" type="text" value="{{ form.allowed_command_dirs if form else ((action.allowed_command_dirs or []) | join(', ')) }}">
+            </div>
+            <div style="margin-bottom: 8px;">
+                <label for="allowed_cwd_dirs">Allowed CWD Dirs (comma-separated)</label><br>
+                <input id="allowed_cwd_dirs" name="allowed_cwd_dirs" type="text" value="{{ form.allowed_cwd_dirs if form else ((action.allowed_cwd_dirs or []) | join(', ')) }}">
+            </div>
+            <div style="margin-bottom: 8px;">
+                <label for="max_retries">Max Retries</label><br>
+                <input id="max_retries" name="max_retries" type="number" min="0" max="10" value="{{ form.max_retries if form else action.max_retries }}">
+                <span class="muted">Retry count on failure (0 = no retry)</span>
+            </div>
+            <div style="margin-bottom: 8px;">
+                <label for="retry_delay">Retry Delay (seconds)</label><br>
+                <input id="retry_delay" name="retry_delay" type="number" min="1" value="{{ form.retry_delay if form else action.retry_delay }}">
+                <span class="muted">Seconds between retry attempts</span>
+            </div>
+            <button type="submit">Save Changes</button>
+        </fieldset>
+    </form>
+</body>
+</html>
