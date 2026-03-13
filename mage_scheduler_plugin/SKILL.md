@@ -1,5 +1,6 @@
 ---
-name: mage-scheduler
+name: mage-scheduler-plugin
+namespace: mage-scheduler
 description: Use this skill when the user wants to schedule, run, or manage tasks and actions using Mage Scheduler, including validation, previews, and dashboard/status operations.
 metadata:
   short-description: Schedule and manage tasks with Mage Scheduler

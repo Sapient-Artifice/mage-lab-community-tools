@@ -4,22 +4,5 @@
   "version": "2.0.0",
   "author": {
     "name": "Mage Lab Community Tools Contributors"
-  },
-  "mcpServers": {
-    "scheduler": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--project",
-        "${SKILL_PATH}",
-        "python",
-        "-m",
-        "mcp_server"
-      ],
-      "env": {
-        "SCHEDULER_DATA_DIR": "${HOME}/.mage_scheduler",
-        "SCHEDULER_PORT": "8012"
-      }
-    }
   }
 }

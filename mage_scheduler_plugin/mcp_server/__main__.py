@@ -108,10 +108,10 @@ def _wait_for_ready(timeout_secs: int = 15) -> bool:
 def main() -> None:
     if not _is_ready():
         _start_backend()
-        if not _wait_for_ready(timeout_secs=15):
+        if not _wait_for_ready(timeout_secs=5):
             # Backend did not come up in time — serve MCP anyway so the LLM
             # gets a meaningful error from the tool calls rather than silence.
-            _warn("Mage Scheduler backend did not become ready in 15s. "
+            _warn("Mage Scheduler backend did not become ready in 5s. "
                   f"Check logs at {DATA_DIR / 'scheduler.log'}")
 
     # Import tool registry — this registers all @mcp.tool() decorators

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "scheduler": {
+      "command": "python3",
+      "args": [
+        "bin/start_mcp.py"
+      ],
+      "env": {
+        "SCHEDULER_DATA_DIR": "${HOME}/.mage_scheduler",
+        "SCHEDULER_PORT": "8012"
+      }
+    }
+  }
+}
