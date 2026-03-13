@@ -9,6 +9,7 @@ import time
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from starlette.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -51,6 +52,12 @@ async def _lifespan(application):
 
 
 app = FastAPI(title="Mage Scheduler", lifespan=_lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r".*",
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters["local_time"] = lambda dt: _to_local_time(dt)

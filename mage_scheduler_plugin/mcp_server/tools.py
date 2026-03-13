@@ -75,12 +75,42 @@ def _delete(path: str) -> str:
         return json.dumps({"error": f"connection_error: {exc}"})
 
 
-def _open_url(url: str) -> None:
-    """Open a URL in the system browser (Linux/macOS)."""
-    if platform.system() == "Darwin":
-        subprocess.Popen(["open", url])
-    else:
-        subprocess.Popen(["xdg-open", url])
+_MAGE_LAB_PORT = int(os.environ.get("MAGE_LAB_PORT", os.environ.get("API_PORT", "11115")))
+_MAGE_LAB_URL = os.environ.get("MAGE_LAB_URL", f"http://127.0.0.1:{_MAGE_LAB_PORT}")
+
+
+_PLUGIN_DIR = Path(__file__).resolve().parent.parent
+
+
+def _open_in_app(url: str, panel: str = "panel") -> None:
+    """Open a URL in the mage-lab in-app tab via a local iframe wrapper.
+
+    Writes a small HTML file containing a full-screen <iframe src="url"> so
+    that the live app loads directly — preserving its own assets, navigation,
+    and AJAX calls — then asks the mage-lab backend to open that file as a tab.
+    Falls back to the system browser if the backend is unreachable.
+    """
+    wrapper_path = _PLUGIN_DIR / f"mage_scheduler_{panel}.html"
+    wrapper_path.write_text(
+        f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Mage Scheduler</title>
+<style>*{{margin:0;padding:0}}html,body,iframe{{width:100%;height:100%;border:none;display:block}}</style>
+</head><body>
+<iframe src="{url}" width="100%" height="100%" frameborder="0"></iframe>
+</body></html>""",
+        encoding="utf-8",
+    )
+    try:
+        httpx.get(
+            f"{_MAGE_LAB_URL}/api/test_open_tab",
+            params={"path": str(wrapper_path)},
+            timeout=3,
+        )
+    except httpx.RequestError:
+        if platform.system() == "Darwin":
+            subprocess.Popen(["open", url])
+        else:
+            subprocess.Popen(["xdg-open", url])
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +256,7 @@ def scheduler_context() -> str:
 def scheduler_open_dashboard() -> str:
     """Open the Mage Scheduler task dashboard in the browser."""
     url = f"{BASE_URL}/"
-    _open_url(url)
+    _open_in_app(url, "dashboard")
     return f"Opened {url}"
 
 
@@ -234,7 +264,7 @@ def scheduler_open_dashboard() -> str:
 def scheduler_open_actions() -> str:
     """Open the Mage Scheduler actions management page in the browser."""
     url = f"{BASE_URL}/actions"
-    _open_url(url)
+    _open_in_app(url, "actions")
     return f"Opened {url}"
 
 
@@ -242,7 +272,7 @@ def scheduler_open_actions() -> str:
 def scheduler_open_settings() -> str:
     """Open the Mage Scheduler settings page in the browser."""
     url = f"{BASE_URL}/settings"
-    _open_url(url)
+    _open_in_app(url, "settings")
     return f"Opened {url}"
 
 
