@@ -62,11 +62,16 @@ def _start_backend() -> subprocess.Popen:
     log_path = DATA_DIR / "scheduler.log"
     log_file = open(log_path, "a", encoding="utf-8")  # noqa: SIM115
 
-    # Resolve the python interpreter inside our own venv so the subprocess
-    # picks up apscheduler, sqlalchemy, fastapi etc.
-    python = Path(sys.executable)
+    # Use the venv Python from this plugin's own directory — never sys.executable,
+    # which may be inherited from a parent process running a different environment
+    # (e.g. Mage Lab activating its own venv before spawning us).
+    python = PLUGIN_DIR / ".venv" / "bin" / "python"
 
-    env = {**os.environ, "SCHEDULER_DATA_DIR": str(DATA_DIR)}
+    # Strip Python environment vars that could cause the subprocess to load
+    # packages from the parent process's venv instead of ours.
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("PYTHONPATH", "VIRTUAL_ENV", "VIRTUAL_ENV_PROMPT")}
+    env["SCHEDULER_DATA_DIR"] = str(DATA_DIR)
 
     proc = subprocess.Popen(
         [

@@ -1,0 +1,292 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Mage Scheduler{% endblock %}</title>
+    <style>
+        :root {
+            --bg: #f5f4f8;
+            --surface: #ffffff;
+            --border: #e2dff0;
+            --text: #1e1b2e;
+            --muted: #7c7a8e;
+            --accent: #7c3aed;
+            --accent-dark: #6d28d9;
+            --accent-light: #ede9fe;
+            --radius: 8px;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+        }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* Nav */
+        nav {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0 24px;
+        }
+        .nav-inner {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            height: 48px;
+        }
+        .nav-brand {
+            font-weight: 700;
+            font-size: 15px;
+            color: var(--accent);
+            text-decoration: none;
+            margin-right: 24px;
+            letter-spacing: -0.3px;
+            flex-shrink: 0;
+        }
+        .nav-brand:hover { text-decoration: none; color: var(--accent-dark); }
+        .nav-link {
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 13px;
+            padding: 0 10px;
+            height: 48px;
+            display: inline-flex;
+            align-items: center;
+            box-shadow: inset 0 -2px 0 transparent;
+            transition: color 0.15s;
+        }
+        .nav-link:hover { color: var(--text); text-decoration: none; }
+        .nav-link.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 500; }
+
+        /* Layout */
+        .page-wrap { max-width: 1100px; margin: 0 auto; padding: 28px 24px; }
+        .page-header { margin-bottom: 24px; }
+        .page-header .sub {
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 3px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        /* Headings */
+        h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+        h2 {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--muted);
+            margin: 32px 0 10px;
+        }
+        h2 a { text-transform: none; font-weight: 500; font-size: 12px; letter-spacing: 0; }
+        .muted { color: var(--muted); font-size: 13px; }
+
+        /* Tables */
+        .table-wrap { overflow-x: auto; margin-bottom: 4px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--surface);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+        }
+        th {
+            background: #f0edf8;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--muted);
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; font-size: 13px; }
+        tr:last-child td { border-bottom: none; }
+        tbody tr:hover td { background: #faf9fd; }
+
+        /* Status badges */
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            white-space: nowrap;
+        }
+        .badge-scheduled { background: #dbeafe; color: #1d4ed8; }
+        .badge-running   { background: #fef3c7; color: #92400e; }
+        .badge-completed { background: #dcfce7; color: #166534; }
+        .badge-failed    { background: #fee2e2; color: #991b1b; }
+        .badge-blocked   { background: #fee2e2; color: #991b1b; }
+        .badge-cancelled { background: #f3f4f6; color: #6b7280; }
+        .badge-waiting   { background: var(--accent-light); color: var(--accent-dark); }
+
+        /* Buttons */
+        button, .btn {
+            display: inline-flex;
+            align-items: center;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            font-family: inherit;
+            line-height: 1.4;
+            text-decoration: none;
+            transition: background 0.1s, border-color 0.1s;
+            white-space: nowrap;
+        }
+        button:hover, .btn:hover { background: var(--bg); text-decoration: none; }
+        .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .btn-primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; }
+        .btn-danger { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+        .btn-danger:hover { background: #fecaca; }
+
+        /* Forms */
+        fieldset {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px 20px;
+            margin-bottom: 24px;
+            background: var(--surface);
+        }
+        fieldset legend { font-size: 13px; font-weight: 600; padding: 0 6px; color: var(--text); }
+        .field { margin-bottom: 14px; }
+        .field label {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
+        .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+        input[type=text],
+        input[type=number],
+        input[type=datetime-local],
+        select,
+        textarea {
+            width: 100%;
+            padding: 7px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 13px;
+            color: var(--text);
+            background: #fff;
+            font-family: inherit;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+        }
+        input:disabled, select:disabled { background: var(--bg); color: var(--muted); cursor: not-allowed; }
+        input[type=checkbox] { width: auto; accent-color: var(--accent); }
+        .checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+        .checkbox-row label {
+            font-size: 13px;
+            font-weight: normal;
+            text-transform: none;
+            letter-spacing: 0;
+            color: var(--text);
+            margin-bottom: 0;
+        }
+
+        /* Detail view */
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .detail-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px 16px;
+        }
+        .detail-box.full { grid-column: 1 / -1; }
+        .detail-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 4px; }
+        .detail-value { color: var(--text); font-size: 13px; }
+
+        /* Misc */
+        pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; font-family: "SF Mono", "Fira Code", ui-monospace, monospace; margin: 4px 0 0; }
+        code { font-size: 12px; background: #f0edf8; padding: 1px 5px; border-radius: 4px; color: #5b21b6; font-family: "SF Mono", "Fira Code", ui-monospace, monospace; }
+        .error-msg { background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
+        .tag { display: inline-block; background: #f0edf8; color: var(--accent-dark); border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 500; }
+        .form-actions { display: flex; align-items: center; gap: 10px; margin-top: 20px; }
+        tr.row-disabled td { opacity: 0.5; }
+
+        /* Collapsible sections */
+        details {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 24px;
+            background: var(--surface);
+        }
+        details summary {
+            font-size: 13px;
+            font-weight: 600;
+            padding: 13px 20px;
+            cursor: pointer;
+            user-select: none;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: var(--radius);
+        }
+        details summary::-webkit-details-marker { display: none; }
+        details summary::before {
+            content: "▸";
+            font-size: 10px;
+            color: var(--muted);
+            transition: transform 0.15s;
+            flex-shrink: 0;
+        }
+        details[open] summary::before { transform: rotate(90deg); }
+        details[open] summary {
+            border-bottom: 1px solid var(--border);
+            border-radius: var(--radius) var(--radius) 0 0;
+        }
+        details summary:hover { background: #faf9fd; }
+        .details-body { padding: 18px 20px; }
+    </style>
+</head>
+<body>
+<nav>
+    <div class="nav-inner">
+        <a href="/" class="nav-brand">Mage Scheduler</a>
+        <a href="/" class="nav-link{% if request.url.path == '/' %} active{% endif %}">Dashboard</a>
+        <a href="/actions" class="nav-link{% if request.url.path.startswith('/actions') %} active{% endif %}">Actions</a>
+        <a href="/recurring" class="nav-link{% if request.url.path.startswith('/recurring') %} active{% endif %}">Recurring</a>
+        <a href="/settings" class="nav-link{% if request.url.path == '/settings' %} active{% endif %}">Settings</a>
+    </div>
+</nav>
+<div class="page-wrap">
+    {% block content %}{% endblock %}
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

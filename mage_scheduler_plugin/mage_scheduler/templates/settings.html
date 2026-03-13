@@ -1,57 +1,62 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Settings - Mage Scheduler</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        h1 { text-align: center; }
-        .muted { color: #777; font-size: 0.9em; }
-        input, textarea { width: 100%; }
-        fieldset { border: 1px solid #ddd; padding: 12px; border-radius: 6px; }
-    </style>
-</head>
-<body>
+{% extends "base.html" %}
+
+{% block title %}Settings — Mage Scheduler{% endblock %}
+
+{% block content %}
+<div class="page-header">
     <h1>Settings</h1>
-    <p class="muted"><a href="/">Back to tasks</a> | <a href="/actions">Actions</a></p>
-    {% if error %}
-        <p style="color: #b00020;">Error: {{ error }}</p>
-    {% endif %}
-    <form action="/settings" method="post">
-        <fieldset>
-            <legend>Global Directory Allowlist</legend>
-            <div style="margin-bottom: 8px;">
-                <label for="allowed_command_dirs">Allowed Command Dirs (comma-separated)</label><br>
-                <input id="allowed_command_dirs" name="allowed_command_dirs" type="text" value="{{ form.allowed_command_dirs if form else ((settings.allowed_command_dirs or []) | join(', ')) }}" placeholder="/usr/local/bin,/opt/mage/scripts">
-            </div>
-            <div style="margin-bottom: 8px;">
-                <label for="allowed_cwd_dirs">Allowed CWD Dirs (comma-separated)</label><br>
-                <input id="allowed_cwd_dirs" name="allowed_cwd_dirs" type="text" value="{{ form.allowed_cwd_dirs if form else ((settings.allowed_cwd_dirs or []) | join(', ')) }}" placeholder="/home/user,/opt/mage">
-            </div>
-        </fieldset>
-        <fieldset style="margin-top:16px">
-            <legend>Auto-Cleanup</legend>
-            <label>
-                <input type="checkbox" name="cleanup_enabled" value="1" id="cleanup_enabled"
-                       {% if (form and form.cleanup_enabled == "1") or (not form and settings.cleanup_enabled) %}checked{% endif %}>
-                Enable auto-cleanup of old completed tasks (runs daily)
-            </label>
-            <div id="retention-days-row" style="margin-top:8px; display:{% if (form and form.cleanup_enabled == "1") or (not form and settings.cleanup_enabled) %}block{% else %}none{% endif %}">
-                <label for="task_retention_days">Retention days</label><br>
-                <input type="number" name="task_retention_days" id="task_retention_days"
-                       value="{{ settings.task_retention_days or 30 }}" min="1" max="3650" style="width:80px">
-                <small style="margin-left:6px">days (default: 30). Tasks with <em>retain result</em> are never deleted.</small>
-            </div>
-        </fieldset>
-        <div style="margin-top: 16px;">
-            <button type="submit">Save Settings</button>
+</div>
+
+{% if error %}
+    <div class="error-msg">{{ error }}</div>
+{% endif %}
+
+<form action="/settings" method="post">
+    <fieldset>
+        <legend>Global Directory Allowlist</legend>
+        <div class="field">
+            <label for="allowed_command_dirs">Allowed Command Dirs <span style="font-weight:normal;text-transform:none;letter-spacing:0;color:var(--muted)">(comma-separated)</span></label>
+            <input id="allowed_command_dirs" name="allowed_command_dirs" type="text"
+                   value="{{ form.allowed_command_dirs if form else ((settings.allowed_command_dirs or []) | join(', ')) }}"
+                   placeholder="/usr/local/bin,/opt/mage/scripts">
         </div>
-    </form>
-    <script>
-        document.getElementById('cleanup_enabled').addEventListener('change', function() {
-            document.getElementById('retention-days-row').style.display = this.checked ? 'block' : 'none';
-        });
-    </script>
-</body>
-</html>
+        <div class="field">
+            <label for="allowed_cwd_dirs">Allowed CWD Dirs <span style="font-weight:normal;text-transform:none;letter-spacing:0;color:var(--muted)">(comma-separated)</span></label>
+            <input id="allowed_cwd_dirs" name="allowed_cwd_dirs" type="text"
+                   value="{{ form.allowed_cwd_dirs if form else ((settings.allowed_cwd_dirs or []) | join(', ')) }}"
+                   placeholder="/home/user,/opt/mage">
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Auto-Cleanup</legend>
+        <div class="checkbox-row">
+            <input type="checkbox" name="cleanup_enabled" value="1" id="cleanup_enabled"
+                   {% if (form and form.cleanup_enabled == "1") or (not form and settings.cleanup_enabled) %}checked{% endif %}>
+            <label for="cleanup_enabled">Enable auto-cleanup of old completed tasks (runs daily)</label>
+        </div>
+        <div id="retention-days-row" style="margin-top:12px; display:{% if (form and form.cleanup_enabled == "1") or (not form and settings.cleanup_enabled) %}block{% else %}none{% endif %}">
+            <div class="field">
+                <label for="task_retention_days">Retention Days</label>
+                <div style="display:flex;align-items:center;gap:10px">
+                    <input type="number" name="task_retention_days" id="task_retention_days"
+                           value="{{ settings.task_retention_days or 30 }}" min="1" max="3650" style="width:90px">
+                    <span class="muted">days (default: 30) &mdash; tasks with <em>retain result</em> are never deleted.</span>
+                </div>
+            </div>
+        </div>
+    </fieldset>
+
+    <div class="form-actions">
+        <button type="submit" class="btn-primary">Save Settings</button>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('cleanup_enabled').addEventListener('change', function() {
+        document.getElementById('retention-days-row').style.display = this.checked ? 'block' : 'none';
+    });
+</script>
+{% endblock %}

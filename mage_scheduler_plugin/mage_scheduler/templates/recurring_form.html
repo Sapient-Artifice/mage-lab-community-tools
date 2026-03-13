@@ -1,58 +1,42 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% if editing %}Edit{% else %}New{% endif %} Recurring Task — Mage Scheduler</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        h1 { text-align: center; }
-        label { display: block; margin-top: 10px; font-weight: bold; }
-        input[type=text], input[type=number], select, textarea {
-            width: 100%; box-sizing: border-box; padding: 6px; margin-top: 4px;
-        }
-        .hint { font-size: 0.85em; color: #777; margin-top: 2px; }
-        .error { background: #fdd; border: 1px solid #c00; padding: 10px; margin-bottom: 12px; border-radius: 4px; }
-        button[type=submit] { margin-top: 16px; padding: 8px 20px; }
-        .muted { color: #777; font-size: 0.9em; }
-        fieldset { border: 1px solid #ddd; padding: 16px; border-radius: 6px; }
-    </style>
-</head>
-<body>
+{% extends "base.html" %}
+
+{% block title %}{% if editing %}Edit{% else %}New{% endif %} Recurring Task — Mage Scheduler{% endblock %}
+
+{% block content %}
+<div class="page-header">
     <h1>{% if editing %}Edit{% else %}New{% endif %} Recurring Task</h1>
-    <p class="muted"><a href="/recurring">Back to recurring tasks</a> | <a href="/">Dashboard</a></p>
+</div>
 
-    {% if error %}
-    <div class="error">Error: {{ error }}</div>
-    {% endif %}
+{% if error %}
+    <div class="error-msg">{{ error }}</div>
+{% endif %}
 
-    <form method="post">
-        <fieldset>
-            <legend>Schedule</legend>
-
-            <label for="name">Name <span style="font-weight:normal;color:#777">(unique identifier)</span></label>
-            <input id="name" name="name" type="text" required
-                   value="{{ form.name if form.name is defined else '' }}">
-
-            <label for="cron">Cron expression</label>
-            <input id="cron" name="cron" type="text" required placeholder="0 9 * * 1"
-                   value="{{ form.cron if form.cron is defined else '' }}">
-            <div class="hint">5-field cron: minute hour dom month dow. Example: <code>0 9 * * 1</code> = Monday 9am.</div>
-
+<form method="post">
+    <fieldset>
+        <legend>Schedule</legend>
+        <div class="field">
+            <label for="name">Name <span style="font-weight:normal;text-transform:none;letter-spacing:0;color:var(--muted)">(unique identifier)</span></label>
+            <input id="name" name="name" type="text" required value="{{ form.name if form.name is defined else '' }}">
+        </div>
+        <div class="field">
+            <label for="cron">Cron Expression</label>
+            <input id="cron" name="cron" type="text" required placeholder="0 9 * * 1" value="{{ form.cron if form.cron is defined else '' }}">
+            <div class="hint">5-field cron: minute hour dom month dow &mdash; e.g. <code>0 9 * * 1</code> = Monday 9am.</div>
+        </div>
+        <div class="field">
             <label for="timezone">Timezone</label>
-            <input id="timezone" name="timezone" type="text" placeholder="UTC"
-                   value="{{ form.timezone if form.timezone is defined else 'UTC' }}">
+            <input id="timezone" name="timezone" type="text" placeholder="UTC" value="{{ form.timezone if form.timezone is defined else 'UTC' }}">
             <div class="hint">IANA timezone name, e.g. <code>America/Los_Angeles</code>, <code>Europe/London</code>.</div>
-        </fieldset>
+        </div>
+    </fieldset>
 
-        <fieldset style="margin-top: 12px;">
-            <legend>Task</legend>
-
+    <fieldset>
+        <legend>Task</legend>
+        <div class="field">
             <label for="description">Description</label>
-            <input id="description" name="description" type="text"
-                   value="{{ form.description if form.description is defined else '' }}"
-                   placeholder="Optional description">
-
+            <input id="description" name="description" type="text" value="{{ form.description if form.description is defined else '' }}" placeholder="Optional description">
+        </div>
+        <div class="field">
             <label for="action_name">Action</label>
             <select id="action_name" name="action_name">
                 <option value="">-- Custom command --</option>
@@ -63,49 +47,50 @@
                     </option>
                 {% endfor %}
             </select>
-
-            <label for="command">Command <span style="font-weight:normal;color:#777">(if not using action)</span></label>
-            <input id="command" name="command" type="text" placeholder="/usr/bin/my-script.sh"
-                   value="{{ form.command if form.command is defined else '' }}">
+        </div>
+        <div class="field">
+            <label for="command">Command <span style="font-weight:normal;text-transform:none;letter-spacing:0;color:var(--muted)">(if not using action)</span></label>
+            <input id="command" name="command" type="text" placeholder="/usr/bin/my-script.sh" value="{{ form.command if form.command is defined else '' }}">
             <div class="hint">Absolute path required when not using an action.</div>
-        </fieldset>
+        </div>
+    </fieldset>
 
-        <fieldset style="margin-top: 12px;">
-            <legend>Options</legend>
+    <fieldset>
+        <legend>Options</legend>
+        <div class="checkbox-row">
+            <input type="checkbox" id="notify_on_complete" name="notify_on_complete" value="1" {% if form.notify_on_complete %}checked{% endif %}>
+            <label for="notify_on_complete">Notify on complete</label>
+        </div>
+        <div class="field" style="margin-top:14px">
+            <label for="max_retries">Max Retries</label>
+            <input id="max_retries" name="max_retries" type="number" min="0" style="width:100px" value="{{ form.max_retries if form.max_retries is defined else 0 }}">
+        </div>
+        <div class="field">
+            <label for="retry_delay">Retry Delay (seconds)</label>
+            <input id="retry_delay" name="retry_delay" type="number" min="1" style="width:100px" value="{{ form.retry_delay if form.retry_delay is defined else 60 }}">
+        </div>
+        <div class="checkbox-row">
+            <input type="checkbox" id="enabled" name="enabled" value="1" {% if form.enabled is not defined or form.enabled %}checked{% endif %}>
+            <label for="enabled">Enabled</label>
+        </div>
+    </fieldset>
 
-            <label>
-                <input type="checkbox" name="notify_on_complete" value="1"
-                    {% if form.notify_on_complete %}checked{% endif %}>
-                Notify on complete
-            </label>
+    <div class="form-actions">
+        <button type="submit" class="btn-primary">{% if editing %}Save Changes{% else %}Create Recurring Task{% endif %}</button>
+        <a href="/recurring" class="btn">Cancel</a>
+    </div>
+</form>
+{% endblock %}
 
-            <label for="max_retries">Max retries</label>
-            <input id="max_retries" name="max_retries" type="number" min="0" style="width: auto;"
-                   value="{{ form.max_retries if form.max_retries is defined else 0 }}">
-
-            <label for="retry_delay">Retry delay (seconds)</label>
-            <input id="retry_delay" name="retry_delay" type="number" min="1" style="width: auto;"
-                   value="{{ form.retry_delay if form.retry_delay is defined else 60 }}">
-
-            <label>
-                <input type="checkbox" name="enabled" value="1"
-                    {% if form.enabled is not defined or form.enabled %}checked{% endif %}>
-                Enabled
-            </label>
-        </fieldset>
-
-        <button type="submit">{% if editing %}Save changes{% else %}Create recurring task{% endif %}</button>
-    </form>
-
-    <script>
-        const actionSelect = document.getElementById("action_name");
-        const commandInput = document.getElementById("command");
-        function updateCommandState() {
-            commandInput.disabled = actionSelect.value !== "";
-            if (actionSelect.value !== "") commandInput.value = "";
-        }
-        actionSelect.addEventListener("change", updateCommandState);
-        updateCommandState();
-    </script>
-</body>
-</html>
+{% block scripts %}
+<script>
+    const actionSelect = document.getElementById("action_name");
+    const commandInput = document.getElementById("command");
+    function updateCommandState() {
+        commandInput.disabled = actionSelect.value !== "";
+        if (actionSelect.value !== "") commandInput.value = "";
+    }
+    actionSelect.addEventListener("change", updateCommandState);
+    updateCommandState();
+</script>
+{% endblock %}
