@@ -62,8 +62,7 @@ class TestDashboardCleanupPill:
 
         resp = client.get("/")
         assert resp.status_code == 200
-        assert "↺ cleanup" in resp.text
-        assert "14-day retention" in resp.text
+        assert "auto-cleanup 14d" in resp.text
 
     def test_pill_hidden_when_cleanup_disabled(self, api_client):
         """GET / with cleanup disabled → pill absent."""
@@ -78,7 +77,7 @@ class TestDashboardCleanupPill:
 
         resp = client.get("/")
         assert resp.status_code == 200
-        assert "↺ cleanup" not in resp.text
+        assert "auto-cleanup" not in resp.text
 
     def test_pill_hidden_when_no_settings_row(self, api_client):
         """GET / with no Settings row at all → pill absent (cleanup defaults to disabled)."""
@@ -86,4 +85,4 @@ class TestDashboardCleanupPill:
 
         resp = client.get("/")
         assert resp.status_code == 200
-        assert "↺ cleanup" not in resp.text
+        assert "auto-cleanup" not in resp.text

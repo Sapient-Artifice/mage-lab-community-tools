@@ -393,8 +393,7 @@ def _validate_action_payload(
     return allowed_command_dirs, allowed_cwd_dirs
 
 
-@app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, db: Session = Depends(get_db)):
+def _dashboard_context(request: Request, db: Session, error: str | None = None) -> dict:
     tasks = db.execute(
         select(TaskRequest).order_by(TaskRequest.created_at.desc()).limit(100)
     ).scalars().all()
@@ -421,70 +420,84 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         select(RecurringTask).order_by(RecurringTask.name.asc())
     ).scalars().all()
     settings = _get_settings(db)
-    return templates.TemplateResponse(
-        "tasks.html",
-        {
-            "request": request,
-            "tasks": tasks,
-            "actions": actions,
-            "recent_results": recent_results,
-            "blocked_tasks": blocked_tasks,
-            "waiting_tasks": waiting_tasks,
-            "recurring_tasks": recurring_tasks,
-            "cleanup_enabled": bool(settings.cleanup_enabled),
-            "retention_days": settings.task_retention_days or 30,
-        },
-    )
+    return {
+        "request": request,
+        "tasks": tasks,
+        "actions": actions,
+        "recent_results": recent_results,
+        "blocked_tasks": blocked_tasks,
+        "waiting_tasks": waiting_tasks,
+        "recurring_tasks": recurring_tasks,
+        "cleanup_enabled": bool(settings.cleanup_enabled),
+        "retention_days": settings.task_retention_days or 30,
+        "error": error,
+    }
+
+
+@app.get("/", response_class=HTMLResponse)
+def dashboard(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse("tasks.html", _dashboard_context(request, db))
 
 
 @app.post("/tasks")
 def create_task_form(
+    request: Request,
     command: str | None = Form(None),
     run_at: datetime = Form(...),
     description: str | None = Form(None),
     action_id: int | None = Form(None),
+    db: Session = Depends(get_db),
 ):
-    action_name = None
-    action_cwd = None
-    allowed_command_dirs = None
-    allowed_cwd_dirs = None
-    if action_id:
+    try:
+        action_name = None
+        action_cwd = None
+        allowed_command_dirs = None
+        allowed_cwd_dirs = None
+        if action_id:
+            with SessionLocal() as session:
+                action = session.get(Action, action_id)
+                if action is None:
+                    raise HTTPException(status_code=400, detail="Invalid action")
+                settings = _get_settings(session)
+                allowed_command_dirs = action.allowed_command_dirs or settings.allowed_command_dirs
+                allowed_cwd_dirs = action.allowed_cwd_dirs or settings.allowed_cwd_dirs
+                _validate_command(action.command, allowed_command_dirs)
+                command = action.command
+                action_name = action.name
+                action_cwd = action.default_cwd
+                if not description:
+                    description = action.description or action.name
+        elif not command:
+            raise HTTPException(status_code=400, detail="Command or action is required")
+        else:
+            with SessionLocal() as session:
+                settings = _get_settings(session)
+                allowed_command_dirs = settings.allowed_command_dirs
+            _validate_command(command, allowed_command_dirs)
+
+        _validate_cwd(action_cwd, allowed_cwd_dirs)
+        manager = TaskManager()
+        task_id = manager.schedule_command(command, run_at, cwd=action_cwd)
+
         with SessionLocal() as session:
-            action = session.get(Action, action_id)
-            if action is None:
-                raise HTTPException(status_code=400, detail="Invalid action")
-            settings = _get_settings(session)
-            allowed_command_dirs = action.allowed_command_dirs or settings.allowed_command_dirs
-            allowed_cwd_dirs = action.allowed_cwd_dirs or settings.allowed_cwd_dirs
-            _validate_command(action.command, allowed_command_dirs)
-            command = action.command
-            action_name = action.name
-            action_cwd = action.default_cwd
-            if not description:
-                description = action.description or action.name
-    elif not command:
-        raise HTTPException(status_code=400, detail="Command or action is required")
-    else:
-        with SessionLocal() as session:
-            settings = _get_settings(session)
-            allowed_command_dirs = settings.allowed_command_dirs
-        _validate_command(command, allowed_command_dirs)
+            task = session.get(TaskRequest, task_id)
+            if task is not None:
+                if description:
+                    task.description = description
+                task.action_id = action_id
+                task.action_name = action_name
+                task.cwd = action_cwd
+                session.commit()
 
-    _validate_cwd(action_cwd, allowed_cwd_dirs)
-    manager = TaskManager()
-    task_id = manager.schedule_command(command, run_at, cwd=action_cwd)
+        return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
 
-    with SessionLocal() as session:
-        task = session.get(TaskRequest, task_id)
-        if task is not None:
-            if description:
-                task.description = description
-            task.action_id = action_id
-            task.action_name = action_name
-            task.cwd = action_cwd
-            session.commit()
-
-    return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
+    except HTTPException as e:
+        error_msg = INTENT_ERROR_MESSAGES.get(str(e.detail), str(e.detail))
+        return templates.TemplateResponse(
+            "tasks.html",
+            _dashboard_context(request, db, error=error_msg),
+            status_code=200,
+        )
 
 
 @app.get("/tasks/{task_id}", response_class=HTMLResponse)

@@ -11,6 +11,7 @@
     </div>
 </div>
 
+{% if error %}<div class="error-msg">{{ error }}</div>{% endif %}
 <details id="schedule-form" open>
     <summary>Schedule Task</summary>
     <div class="details-body">
@@ -30,7 +31,8 @@
         </div>
         <div class="field">
             <label for="command">Command</label>
-            <input id="command" name="command" type="text" placeholder="echo Hello Mage">
+            <input id="command" name="command" type="text" placeholder="/usr/bin/echo hello">
+            <div class="hint">Must be an absolute path. Ignored when an action is selected.</div>
         </div>
         <div class="field">
             <label for="run_at">Run At (Local)</label>

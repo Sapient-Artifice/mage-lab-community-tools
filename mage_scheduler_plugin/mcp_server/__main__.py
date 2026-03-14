@@ -22,88 +22,14 @@ Environment variables (set in plugin.json mcpServers.env):
 """
 from __future__ import annotations
 
-import os
-import subprocess
 import sys
-import time
-import urllib.request
-import urllib.error
-from pathlib import Path
 
-PLUGIN_DIR = Path(__file__).resolve().parent.parent
-BACKEND_DIR = PLUGIN_DIR / "mage_scheduler"
-
-PORT = int(os.environ.get("SCHEDULER_PORT", "8012"))
-HOST = os.environ.get("SCHEDULER_HOST", "127.0.0.1")
-BASE_URL = f"http://{HOST}:{PORT}"
-
-DATA_DIR = Path(os.environ.get("SCHEDULER_DATA_DIR", Path.home() / ".mage_scheduler"))
-
-
-# ---------------------------------------------------------------------------
-# Health check
-# ---------------------------------------------------------------------------
-
-def _is_ready(timeout: float = 1.5) -> bool:
-    try:
-        req = urllib.request.Request(f"{BASE_URL}/health")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status == 200
-    except Exception:
-        return False
-
-
-# ---------------------------------------------------------------------------
-# Backend startup
-# ---------------------------------------------------------------------------
-
-def _start_backend() -> subprocess.Popen:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = DATA_DIR / "scheduler.log"
-    log_file = open(log_path, "a", encoding="utf-8")  # noqa: SIM115
-
-    # Use the venv Python from this plugin's own directory — never sys.executable,
-    # which may be inherited from a parent process running a different environment
-    # (e.g. Mage Lab activating its own venv before spawning us).
-    python = PLUGIN_DIR / ".venv" / "bin" / "python"
-
-    # Strip Python environment vars that could cause the subprocess to load
-    # packages from the parent process's venv instead of ours.
-    env = {k: v for k, v in os.environ.items()
-           if k not in ("PYTHONPATH", "VIRTUAL_ENV", "VIRTUAL_ENV_PROMPT")}
-    env["SCHEDULER_DATA_DIR"] = str(DATA_DIR)
-
-    proc = subprocess.Popen(
-        [
-            str(python),
-            "-m",
-            "uvicorn",
-            "api:app",
-            "--host",
-            HOST,
-            "--port",
-            str(PORT),
-            "--log-level",
-            "warning",
-        ],
-        cwd=str(BACKEND_DIR),
-        stdout=log_file,
-        stderr=log_file,
-        env=env,
-        # Detach from this process's session so the backend survives past the
-        # MCP server's lifetime (tasks continue firing between sessions).
-        start_new_session=True,
-    )
-    return proc
-
-
-def _wait_for_ready(timeout_secs: int = 15) -> bool:
-    deadline = time.monotonic() + timeout_secs
-    while time.monotonic() < deadline:
-        if _is_ready():
-            return True
-        time.sleep(0.4)
-    return False
+from mcp_server.backend import (  # noqa: E402
+    DATA_DIR,
+    _is_ready,
+    _start_backend,
+    _wait_for_ready,
+)
 
 
 # ---------------------------------------------------------------------------

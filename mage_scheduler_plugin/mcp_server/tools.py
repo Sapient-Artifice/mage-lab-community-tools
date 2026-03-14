@@ -19,6 +19,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from mcp_server.backend import restart_backend, DATA_DIR as _BACKEND_DATA_DIR
+
 import logging
 
 import httpx
@@ -470,3 +472,26 @@ def scheduler_update_action(action_id: int, action: dict) -> str:
 def scheduler_delete_action(action_id: int) -> str:
     """Delete a scheduler action by ID."""
     return _delete(f"/api/actions/{action_id}")
+
+
+@mcp.tool()
+def scheduler_restart_backend() -> str:
+    """Restart the Mage Scheduler backend process.
+
+    Gracefully stops the currently running backend (if any), then spawns a
+    fresh one and waits up to 15 seconds for it to become ready.
+
+    Use this when:
+    - scheduler_status shows api_alive: false (backend crashed or was killed)
+    - You need to pick up configuration changes that require a restart
+    - The backend is unresponsive or behaving unexpectedly
+    """
+    success, message = restart_backend(timeout_secs=15)
+    return json.dumps(
+        {
+            "success": success,
+            "message": message,
+            "log": str(_BACKEND_DATA_DIR / "scheduler.log"),
+        },
+        indent=2,
+    )

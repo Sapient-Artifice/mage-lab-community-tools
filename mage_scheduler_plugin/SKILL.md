@@ -68,6 +68,9 @@ Call `scheduler_context` first. It returns in one call:
 - `scheduler_open_actions` — open actions page
 - `scheduler_open_settings` — open settings page
 
+### Backend management
+- `scheduler_restart_backend` — restart the backend process (use when api_alive is false or backend is unresponsive)
+
 ## Intent Schema (v1)
 
 ```json

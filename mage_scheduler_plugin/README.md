@@ -17,7 +17,7 @@ Drop the directory into `~/Mage/Skills/mage-scheduler/` and it works.
 - **Completion notifications** — opt-in per task; posts a structured result back to the assistant when the task finishes.
 - **Auto-cleanup** — configurable retention policy deletes old terminal tasks automatically.
 - **Web dashboard** — Jinja2-rendered HTML UI at `http://127.0.0.1:8012` for task/action/settings management.
-- **21 MCP tools** — full scheduling, inspection, and management surface exposed to the LLM via MCP stdio.
+- **22 MCP tools** — full scheduling, inspection, and management surface exposed to the LLM via MCP stdio.
 - **`/scheduler` slash command** — natural language scheduling or dashboard access in one keystroke.
 
 ---
@@ -59,7 +59,7 @@ Claude Code
     └── /scheduler  ──►  commands/scheduler.md  (slash command)
 ```
 
-**MCP server startup:** When Claude Code activates the plugin, `mcp_server/__main__.py` checks if the FastAPI backend is already running on the configured port. If not, it spawns a `uvicorn` subprocess with `start_new_session=True` (detached from the MCP process), waits up to 15 seconds for it to become healthy, then starts the MCP stdio server. On subsequent activations the backend is already running and the health check passes immediately.
+**MCP server startup:** When Claude Code activates the plugin, `mcp_server/__main__.py` delegates to `mcp_server/backend.py` to check if the FastAPI backend is already running on the configured port. If not, `backend.py` spawns a `uvicorn` subprocess with `start_new_session=True` (detached from the MCP process), waits up to 15 seconds for it to become healthy, then the MCP stdio server starts. On subsequent activations the backend is already running and the health check passes immediately. The `scheduler_restart_backend` MCP tool uses the same `backend.py` logic to kill and respawn the backend on demand.
 
 **Task execution:** Each task is stored as a `TaskRequest` row with `status = "scheduled"`. APScheduler fires `run_command(task_id, command)` at the scheduled time. The job reads the row, runs the command as a subprocess, writes stdout/stderr back to the row, and updates the status to `success` or `failed`.
 
@@ -177,6 +177,11 @@ All 21 tools are available via the `scheduler` MCP server. The naming convention
 | `scheduler_open_dashboard` | Open task dashboard in browser |
 | `scheduler_open_actions` | Open actions management page |
 | `scheduler_open_settings` | Open settings page |
+
+### Backend Management
+| Tool | Description |
+|---|---|
+| `scheduler_restart_backend` | Kill the running backend (if any) and start a fresh one; waits up to 15 s for readiness |
 
 ---
 
@@ -431,11 +436,30 @@ mage_scheduler_plugin/
 │
 ├── mcp_server/
 │   ├── __main__.py              ← Entry point: start backend → serve MCP stdio
-│   └── tools.py                 ← 21 FastMCP tool definitions (httpx → REST API)
+│   ├── backend.py               ← Backend process management (start, health-check, restart)
+│   └── tools.py                 ← 22 FastMCP tool definitions (httpx → REST API)
 │
 └── tests/
     ├── conftest.py              ← Pytest fixtures (in-memory DB, mocked scheduler)
-    └── test_*.py                ← 399 tests across all modules
+    ├── test_api_action_endpoints.py      ← GET/POST/PUT/DELETE /api/actions
+    ├── test_api_create_task_form.py      ← POST /tasks (HTML form; error → dashboard, success → redirect)
+    ├── test_api_depends_on.py            ← depends_on validation in intent API
+    ├── test_api_recurring_endpoints.py   ← /api/recurring CRUD and toggle
+    ├── test_api_settings_endpoints.py    ← GET/POST /settings; dashboard cleanup pill
+    ├── test_api_task_endpoints.py        ← /api/tasks CRUD, cancel, dependencies, health
+    ├── test_backend_restart.py           ← mcp_server/backend.py: _is_ready, _find_backend_pid, restart_backend
+    ├── test_beat_task.py                 ← APScheduler beat job wiring
+    ├── test_cleanup.py                   ← cleanup beat job logic
+    ├── test_dependency_runtime.py        ← dependency resolution at runtime
+    ├── test_intent_api_core.py           ← /api/tasks/intent core scheduling paths
+    ├── test_intent_api_recurring.py      ← /api/tasks/intent cron/recurring paths
+    ├── test_intent_replace_existing.py   ← replace_existing cancellation logic
+    ├── test_intent_utilities.py          ← intent helpers and edge cases
+    ├── test_nl_parser.py                 ← natural language → ParsedRequest
+    ├── test_recurring_beat_task.py       ← recurring beat job spawning logic
+    ├── test_run_command.py               ← task executor: success, failure, retries, notify
+    └── test_validate_depends_on.py       ← depends_on schema validation
+    — 412 tests total
 ```
 
 ---
@@ -449,7 +473,7 @@ cd mage_scheduler_plugin
 uv run pytest tests/ -v
 ```
 
-All 399 tests run in approximately 3 seconds against an in-memory SQLite database. No backend needs to be running.
+All 412 tests run in approximately 3 seconds against an in-memory SQLite database. No backend needs to be running.
 
 ### Test Architecture
 
