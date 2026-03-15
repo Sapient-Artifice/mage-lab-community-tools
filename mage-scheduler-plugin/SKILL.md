@@ -10,7 +10,7 @@ metadata:
 
 Use this skill when the user wants to schedule tasks or manage actions, recurring tasks, and settings.
 
-The scheduler starts automatically when this plugin is activated — no setup required.
+The scheduler starts automatically when this plugin is activated — no setup required. There are over 20 mcp tools for the scheduler use them.
 
 ## Mental model
 

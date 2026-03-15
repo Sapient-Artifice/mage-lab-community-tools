@@ -3,6 +3,6 @@
   "description": "Task scheduler with cron, dependencies, and notifications. Schedule one-off and recurring commands, chain tasks with dependencies, and get completion notifications.",
   "version": "2.0.0",
   "author": {
-    "name": "Mage Lab Community Tools Contributors"
+    "name": "Keith Mertens"
   }
 }

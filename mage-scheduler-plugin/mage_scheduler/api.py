@@ -30,6 +30,7 @@ from schemas import (
     TaskCreate,
     TaskDependencyRead,
     TaskRead,
+    TaskIntent,
     TaskIntentEnvelope,
     TaskIntentResponse,
     TaskRunNow,
@@ -393,7 +394,7 @@ def _validate_action_payload(
     return allowed_command_dirs, allowed_cwd_dirs
 
 
-def _dashboard_context(request: Request, db: Session, error: str | None = None) -> dict:
+def _dashboard_context(request: Request, db: Session, error: str | None = None, form: dict | None = None) -> dict:
     tasks = db.execute(
         select(TaskRequest).order_by(TaskRequest.created_at.desc()).limit(100)
     ).scalars().all()
@@ -431,6 +432,7 @@ def _dashboard_context(request: Request, db: Session, error: str | None = None) 
         "cleanup_enabled": bool(settings.cleanup_enabled),
         "retention_days": settings.task_retention_days or 30,
         "error": error,
+        "form": form,
     }
 
 
@@ -442,62 +444,126 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
 @app.post("/tasks")
 def create_task_form(
     request: Request,
-    command: str | None = Form(None),
-    run_at: datetime = Form(...),
+    run_date: str = Form(...),
+    run_time: str = Form(...),
+    timezone: str = Form("UTC"),
     description: str | None = Form(None),
     action_id: int | None = Form(None),
+    command: str | None = Form(None),
+    message: str | None = Form(None),
+    recur_preset: str = Form("none"),
+    cust_interval: int = Form(1),
+    cust_freq: str = Form("day"),
+    cust_days: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    try:
-        action_name = None
-        action_cwd = None
-        allowed_command_dirs = None
-        allowed_cwd_dirs = None
-        if action_id:
-            with SessionLocal() as session:
-                action = session.get(Action, action_id)
-                if action is None:
-                    raise HTTPException(status_code=400, detail="Invalid action")
-                settings = _get_settings(session)
-                allowed_command_dirs = action.allowed_command_dirs or settings.allowed_command_dirs
-                allowed_cwd_dirs = action.allowed_cwd_dirs or settings.allowed_cwd_dirs
-                _validate_command(action.command, allowed_command_dirs)
-                command = action.command
-                action_name = action.name
-                action_cwd = action.default_cwd
-                if not description:
-                    description = action.description or action.name
-        elif not command:
-            raise HTTPException(status_code=400, detail="Command or action is required")
-        else:
-            with SessionLocal() as session:
-                settings = _get_settings(session)
-                allowed_command_dirs = settings.allowed_command_dirs
-            _validate_command(command, allowed_command_dirs)
+    form = {
+        "run_date": run_date, "run_time": run_time, "timezone": timezone,
+        "description": description or "", "action_id": str(action_id or ""),
+        "command": command or "", "message": message or "",
+        "recur_preset": recur_preset, "cust_interval": cust_interval,
+        "cust_freq": cust_freq, "cust_days": cust_days or "",
+    }
 
-        _validate_cwd(action_cwd, allowed_cwd_dirs)
-        manager = TaskManager()
-        task_id = manager.schedule_command(command, run_at, cwd=action_cwd)
-
-        with SessionLocal() as session:
-            task = session.get(TaskRequest, task_id)
-            if task is not None:
-                if description:
-                    task.description = description
-                task.action_id = action_id
-                task.action_name = action_name
-                task.cwd = action_cwd
-                session.commit()
-
-        return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
-
-    except HTTPException as e:
-        error_msg = INTENT_ERROR_MESSAGES.get(str(e.detail), str(e.detail))
+    def _err(msg: str):
         return templates.TemplateResponse(
             "tasks.html",
-            _dashboard_context(request, db, error=error_msg),
-            status_code=200,
+            _dashboard_context(request, db, error=msg, form=form),
+            status_code=400,
         )
+
+    # Timezone
+    try:
+        tz = ZoneInfo(timezone or "UTC")
+    except Exception:
+        return _err("Invalid timezone. Use an IANA name like 'America/Los_Angeles'.")
+
+    # Parse run_at
+    try:
+        h, m = (int(x) for x in run_time.split(":"))
+        y, mo, d = (int(x) for x in run_date.split("-"))
+        run_at_local = datetime(y, mo, d, h, m, tzinfo=tz)
+    except Exception:
+        return _err("Invalid date or time. Please select a date and enter a valid time.")
+
+    # Resolve action name from action_id
+    action_name: str | None = None
+    if action_id:
+        action = db.get(Action, action_id)
+        if action is None:
+            return _err("Unknown action.")
+        action_name = action.name
+
+    # Build env (only for ask_assistant)
+    env: dict | None = None
+    if action_name == "ask_assistant" and message and message.strip():
+        env = {"MESSAGE": message.strip()}
+
+    task_description = (description or "").strip() or action_name or "Scheduled task"
+
+    # Build cron for recurring presets
+    cron: str | None = None
+    run_at_for_intent: datetime | None = None
+
+    if recur_preset == "none":
+        run_at_for_intent = run_at_local
+    else:
+        cm, ch = run_at_local.minute, run_at_local.hour
+        dom, mon = run_at_local.day, run_at_local.month
+        # Python weekday(): 0=Mon; cron: 0=Sun → shift by 1
+        cron_dow = (run_at_local.weekday() + 1) % 7
+
+        if recur_preset == "daily":
+            cron = f"{cm} {ch} * * *"
+        elif recur_preset == "weekly":
+            cron = f"{cm} {ch} * * {cron_dow}"
+        elif recur_preset == "monthly":
+            cron = f"{cm} {ch} {dom} * *"
+        elif recur_preset == "annual":
+            cron = f"{cm} {ch} {dom} {mon} *"
+        elif recur_preset == "weekdays":
+            cron = f"{cm} {ch} * * 1-5"
+        elif recur_preset == "custom":
+            interval = max(1, cust_interval)
+            if cust_freq == "day":
+                step = f"*/{interval}" if interval > 1 else "*"
+                cron = f"{cm} {ch} {step} * *"
+            elif cust_freq == "week":
+                days_csv = cust_days.strip() if cust_days else str(cron_dow)
+                day_nums = [str(int(x)) for x in days_csv.split(",") if x.strip().isdigit()]
+                cron = f"{cm} {ch} * * {','.join(day_nums) or cron_dow}"
+            elif cust_freq == "month":
+                step = f"*/{interval}" if interval > 1 else "*"
+                cron = f"{cm} {ch} {dom} {step} *"
+            else:  # year
+                cron = f"{cm} {ch} {dom} {mon} *"
+        else:
+            run_at_for_intent = run_at_local
+
+    intent_payload = TaskIntentEnvelope(
+        intent_version="v1",
+        task=TaskIntent(
+            description=task_description,
+            action_name=action_name,
+            command=command if not action_name else None,
+            env=env,
+            run_at=run_at_for_intent,
+            cron=cron,
+            timezone=timezone or "UTC",
+        ),
+        meta={"source": "dashboard-form"},
+    )
+
+    result = create_task_from_intent(intent_payload)
+
+    if result.status == "blocked":
+        error_codes = [e.code for e in (result.errors or [])]
+        msg = "; ".join(INTENT_ERROR_MESSAGES.get(c, c) for c in error_codes) or "Failed to schedule task."
+        return _err(msg)
+
+    if cron:
+        return RedirectResponse(url="/recurring", status_code=303)
+    return RedirectResponse(url=f"/tasks/{result.task_id}", status_code=303)
 
 
 @app.get("/tasks/{task_id}", response_class=HTMLResponse)
@@ -786,6 +852,7 @@ def settings_update(
             settings.task_retention_days = max(1, task_retention_days)
         session.commit()
     return RedirectResponse(url="/settings", status_code=303)
+
 
 
 @app.get("/actions/new", response_class=HTMLResponse)

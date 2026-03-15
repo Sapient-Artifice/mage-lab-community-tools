@@ -1,0 +1,683 @@
+{% extends "base.html" %}
+
+{% block title %}Mage Scheduler{% endblock %}
+
+{% block content %}
+<style>
+    /* ── Schedule form redesign ── */
+    .sched-layout {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 32px;
+        align-items: start;
+    }
+    @media (max-width: 700px) {
+        .sched-layout { grid-template-columns: 1fr; }
+    }
+    .sched-col-label {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--muted);
+        margin: 0 0 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Date picker button + popover ── */
+    .cal-wrap { position: relative; }
+    .date-btn {
+        width: 100%;
+        padding: 7px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 13px;
+        color: var(--text);
+        background: #fff;
+        font-family: inherit;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        transition: border-color 0.15s, box-shadow 0.15s;
+        line-height: 1.4;
+    }
+    .date-btn:hover { background: var(--bg); }
+    .date-btn.open {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+    }
+    .date-btn-caret { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+    .date-btn-placeholder { color: var(--muted); }
+
+    .cal-popover {
+        display: none;
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        z-index: 300;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: 0 6px 24px rgba(0,0,0,0.13);
+        min-width: 268px;
+        overflow: hidden;
+    }
+    .cal-popover.open { display: block; }
+
+    .cal-hdr {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 9px 12px;
+        background: #f0edf8;
+        border-bottom: 1px solid var(--border);
+    }
+    .cal-hdr-title { font-size: 13px; font-weight: 600; color: var(--text); }
+    .cal-nav {
+        background: none; border: none; cursor: pointer;
+        color: var(--muted); font-size: 15px; padding: 2px 7px;
+        border-radius: 4px; line-height: 1; font-family: inherit;
+    }
+    .cal-nav:hover { background: var(--border); color: var(--text); }
+
+    .cal-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 1px;
+        padding: 6px 8px 8px;
+    }
+    .cal-dow {
+        text-align: center;
+        font-size: 10px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.4px;
+        color: var(--muted); padding: 3px 0 4px;
+    }
+    .cal-day {
+        aspect-ratio: 1;
+        display: flex; align-items: center; justify-content: center;
+        border-radius: 6px; font-size: 12px;
+        border: none; background: none; font-family: inherit;
+        cursor: pointer; color: var(--text);
+        transition: background 0.1s;
+        min-width: 0;
+    }
+    .cal-day:hover:not(:disabled) { background: var(--accent-light); color: var(--accent-dark); }
+    .cal-day.is-today { font-weight: 700; color: var(--accent); }
+    .cal-day.is-selected { background: var(--accent); color: #fff !important; font-weight: 600; }
+    .cal-day:disabled { color: #ccc; cursor: default; }
+
+    /* ── Time + timezone inline ── */
+    .field-row { display: flex; gap: 10px; }
+    .field-row .field { flex: 1; min-width: 0; }
+    .field-row input[type=time] { width: 100%; }
+
+    /* ── Ask assistant message field ── */
+    .msg-field { display: none; }
+    .msg-field.visible { display: block; }
+
+    /* ── Recurrence ── */
+    .recur-panel {
+        display: none;
+        margin-top: 8px;
+        padding: 12px 14px;
+        background: #faf9fd;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+    .recur-panel.visible { display: block; }
+
+    .recur-row {
+        display: flex; align-items: center;
+        gap: 8px; flex-wrap: wrap;
+        margin-bottom: 8px; font-size: 13px; color: var(--text);
+    }
+    .recur-row:last-child { margin-bottom: 0; }
+    .recur-row select, .recur-row input[type=number] { width: auto; padding: 5px 8px; }
+    .recur-row input[type=number] { width: 58px; }
+
+    .dow-row { margin-bottom: 8px; display: none; }
+    .dow-row.visible { display: flex; gap: 5px; flex-wrap: wrap; }
+    .dow-btn {
+        width: 30px; height: 30px; border-radius: 50%;
+        border: 1px solid var(--border); background: var(--surface);
+        font-size: 10px; font-weight: 700; color: var(--muted);
+        cursor: pointer; display: flex; align-items: center; justify-content: center;
+        padding: 0; font-family: inherit; transition: all 0.1s;
+    }
+    .dow-btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    .end-extras { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+</style>
+
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <div class="sub">
+        Auto-refreshes every 30&nbsp;seconds &mdash; times shown in local time.
+        {% if cleanup_enabled %}<span class="tag" title="Auto-cleanup enabled — {{ retention_days }}-day retention">auto-cleanup {{ retention_days }}d</span>{% endif %}
+    </div>
+</div>
+
+{% if error %}<div class="error-msg">{{ error }}</div>{% endif %}
+
+<details id="schedule-form" open>
+    <summary>Schedule Task</summary>
+    <div class="details-body">
+    <form action="/tasks" method="post" id="sched-form">
+        <div class="sched-layout">
+
+            <!-- ── WHAT ───────────────────────────────── -->
+            <div>
+                <p class="sched-col-label">What</p>
+
+                <div class="field">
+                    <label for="description">Description</label>
+                    <input id="description" name="description" type="text"
+                           placeholder="Optional label for this task"
+                           value="{{ form.description if form is defined else '' }}">
+                </div>
+
+                <div class="field">
+                    <label for="action_id">Action</label>
+                    <select id="action_id" name="action_id">
+                        <option value="">— Custom command —</option>
+                        {% for action in actions %}
+                        <option value="{{ action.id }}"
+                                data-name="{{ action.name }}"
+                                {% if form is defined and form.action_id|string == action.id|string %}selected{% endif %}>
+                            {{ action.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="field" id="command-field">
+                    <label for="command">Command</label>
+                    <input id="command" name="command" type="text"
+                           placeholder="/usr/bin/echo hello"
+                           value="{{ form.command if form is defined else '' }}">
+                    <div class="hint">Absolute path. Ignored when an action is selected.</div>
+                </div>
+
+                <div class="field msg-field" id="message-field">
+                    <label for="message">Message</label>
+                    <textarea id="message" name="message" rows="4"
+                              placeholder="Add message for the assistant">{{ form.message if form is defined else '' }}</textarea>
+                    <div class="hint">Sent as the MESSAGE to the ask_assistant action.</div>
+                </div>
+            </div>
+
+            <!-- ── WHEN ───────────────────────────────── -->
+            <div>
+                <p class="sched-col-label">When</p>
+
+                <div class="field">
+                    <label>Date</label>
+                    <div class="cal-wrap" id="cal-wrap">
+                        <button type="button" class="date-btn" id="date-btn">
+                            <span id="date-btn-text" class="date-btn-placeholder">Select a date…</span>
+                            <span class="date-btn-caret">▾</span>
+                        </button>
+                        <div class="cal-popover" id="cal-popover">
+                            <div class="cal-hdr">
+                                <button type="button" class="cal-nav" id="cal-prev">&#8249;</button>
+                                <span class="cal-hdr-title" id="cal-title"></span>
+                                <button type="button" class="cal-nav" id="cal-next">&#8250;</button>
+                            </div>
+                            <div class="cal-grid" id="cal-grid"></div>
+                        </div>
+                    </div>
+                    <input type="hidden" name="run_date" id="run_date"
+                           value="{{ form.run_date if form is defined else '' }}">
+                </div>
+
+                <div class="field-row">
+                    <div class="field">
+                        <label for="run_time">Time</label>
+                        <input id="run_time" name="run_time" type="time" required
+                               value="{{ form.run_time if form is defined else '09:00' }}">
+                    </div>
+                    <div class="field">
+                        <label for="timezone">Timezone</label>
+                        <input id="timezone" name="timezone" type="text"
+                               placeholder="America/New_York"
+                               value="{{ form.timezone if form is defined else '' }}">
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="recur_preset">Repeat</label>
+                    <select id="recur_preset" name="recur_preset">
+                        <option value="none"     {% if form is not defined or form.recur_preset == 'none'     %}selected{% endif %}>Does not repeat</option>
+                        <option value="daily"    {% if form is defined and form.recur_preset == 'daily'    %}selected{% endif %}>Daily</option>
+                        <option value="weekly"   {% if form is defined and form.recur_preset == 'weekly'   %}selected{% endif %} id="opt-weekly">Weekly on …</option>
+                        <option value="monthly"  {% if form is defined and form.recur_preset == 'monthly'  %}selected{% endif %} id="opt-monthly">Monthly on …</option>
+                        <option value="annual"   {% if form is defined and form.recur_preset == 'annual'   %}selected{% endif %} id="opt-annual">Annually on …</option>
+                        <option value="weekdays" {% if form is defined and form.recur_preset == 'weekdays' %}selected{% endif %}>Every weekday (Mon–Fri)</option>
+                        <option value="custom"   {% if form is defined and form.recur_preset == 'custom'   %}selected{% endif %}>Custom…</option>
+                    </select>
+                    <div class="hint" id="recur-hint" style="display:none">
+                        Recurring tasks require a description to use as a unique name.
+                    </div>
+
+                    <!-- Custom recurrence panel -->
+                    <div class="recur-panel" id="recur-panel">
+                        <div class="recur-row">
+                            <span>Every</span>
+                            <input type="number" id="cust_interval" name="cust_interval" min="1"
+                                   value="{{ form.cust_interval if form is defined else '1' }}">
+                            <select id="cust_freq" name="cust_freq">
+                                <option value="day"   {% if form is defined and form.cust_freq == 'day'   %}selected{% endif %}>day(s)</option>
+                                <option value="week"  {% if form is defined and form.cust_freq == 'week'  %}selected{% endif %}>week(s)</option>
+                                <option value="month" {% if form is defined and form.cust_freq == 'month' %}selected{% endif %}>month(s)</option>
+                                <option value="year"  {% if form is defined and form.cust_freq == 'year'  %}selected{% endif %}>year(s)</option>
+                            </select>
+                        </div>
+                        <div class="dow-row" id="dow-row">
+                            {% for label, val in [('Su','0'),('Mo','1'),('Tu','2'),('We','3'),('Th','4'),('Fr','5'),('Sa','6')] %}
+                            <button type="button" class="dow-btn" data-dow="{{ val }}">{{ label }}</button>
+                            {% endfor %}
+                        </div>
+                        <input type="hidden" name="cust_days" id="cust_days"
+                               value="{{ form.cust_days if form is defined else '' }}">
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div style="margin-top:20px; display:flex; align-items:center; gap:10px">
+            <button type="submit" class="btn-primary" id="submit-btn">Schedule Task</button>
+        </div>
+    </form>
+    </div>
+</details>
+
+<h2>Recent Results</h2>
+<div class="table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Description</th>
+            <th>Status</th>
+            <th>Result</th>
+            <th>Error</th>
+            <th>Created</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for task in recent_results %}
+        <tr>
+            <td><a href="/tasks/{{ task.id }}">{{ task.id }}</a></td>
+            <td>{{ task.description }}</td>
+            <td><span class="badge badge-{{ task.status }}">{{ task.status }}</span></td>
+            <td class="muted">{{ (task.result or "")[:120] }}</td>
+            <td class="muted">{{ (task.error or "")[:120] }}</td>
+            <td class="muted">{{ task.created_at | local_time }}</td>
+        </tr>
+    {% else %}
+        <tr><td colspan="6" class="muted">No completed tasks yet.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+
+<h2>Recurring Tasks <a href="/recurring/new">+ new</a></h2>
+<div class="table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Cron</th>
+            <th>Timezone</th>
+            <th>Next Run</th>
+            <th>Last Run</th>
+            <th>Status</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for rt in recurring_tasks %}
+        <tr>
+            <td><a href="/recurring/{{ rt.id }}/edit">{{ rt.name }}</a></td>
+            <td><code>{{ rt.cron }}</code></td>
+            <td>{{ rt.timezone }}</td>
+            <td>{{ rt.next_run_at | local_time }}</td>
+            <td>{{ rt.last_run_at | local_time }}</td>
+            <td><span class="badge {{ 'badge-completed' if rt.enabled else 'badge-cancelled' }}">{{ "enabled" if rt.enabled else "disabled" }}</span></td>
+            <td>
+                <form action="/recurring/{{ rt.id }}/toggle" method="post" style="margin:0">
+                    <button type="submit" class="{{ 'btn-danger' if rt.enabled else 'btn-primary' }}">{{ "Disable" if rt.enabled else "Enable" }}</button>
+                </form>
+            </td>
+        </tr>
+    {% else %}
+        <tr><td colspan="7" class="muted">No recurring tasks. <a href="/recurring/new">Create one.</a></td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+
+<h2>Waiting Tasks</h2>
+<div class="table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Description</th>
+            <th>Run At</th>
+            <th>Created</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for task in waiting_tasks %}
+        <tr>
+            <td><a href="/tasks/{{ task.id }}">{{ task.id }}</a></td>
+            <td>{{ task.description }}</td>
+            <td>{{ task.run_at | local_time }}</td>
+            <td class="muted">{{ task.created_at | local_time }}</td>
+        </tr>
+    {% else %}
+        <tr><td colspan="4" class="muted">No waiting tasks.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+
+<h2>Blocked Tasks</h2>
+<div class="table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Description</th>
+            <th>Error</th>
+            <th>Command</th>
+            <th>Created</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for task in blocked_tasks %}
+        <tr>
+            <td><a href="/tasks/{{ task.id }}">{{ task.id }}</a></td>
+            <td>{{ task.description }}</td>
+            <td class="muted">{{ task.error }}</td>
+            <td><code>{{ task.command }}</code></td>
+            <td class="muted">{{ task.created_at | local_time }}</td>
+        </tr>
+    {% else %}
+        <tr><td colspan="5" class="muted">No blocked tasks.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+
+<div class="table-wrap" style="margin-top:32px">
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Description</th>
+            <th>Command</th>
+            <th>Action</th>
+            <th>Source</th>
+            <th>Intent</th>
+            <th>Run At (Local)</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for task in tasks %}
+        <tr>
+            <td><a href="/tasks/{{ task.id }}">{{ task.id }}</a></td>
+            <td>{{ task.description }}</td>
+            <td><code>{{ task.command }}</code></td>
+            <td>{{ task.action_name or "-" }}</td>
+            <td class="muted">{{ task.source or "-" }}</td>
+            <td class="muted">{{ task.intent_version or "-" }}</td>
+            <td>{{ task.run_at | local_time }}</td>
+            <td><span class="badge badge-{{ task.status }}">{{ task.status }}</span></td>
+            <td class="muted">{{ task.created_at | local_time }}</td>
+            <td>
+                <form action="/tasks/{{ task.id }}/delete" method="post" style="margin:0">
+                    <button type="submit" class="btn-danger" onclick="return confirm('Delete task {{ task.id }}?');">Delete</button>
+                </form>
+            </td>
+        </tr>
+    {% else %}
+        <tr><td colspan="10" class="muted">No tasks scheduled yet.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+"use strict";
+
+// ── Timezone auto-detect ─────────────────────────────────────────────────
+const tzInput = document.getElementById("timezone");
+if (tzInput && !tzInput.value) {
+    try { tzInput.value = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch(e) {}
+}
+
+// ── Calendar widget ──────────────────────────────────────────────────────
+const MONTHS = ["January","February","March","April","May","June",
+                "July","August","September","October","November","December"];
+const DOW_SHORT = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+const hiddenDate  = document.getElementById("run_date");
+const dateBtn     = document.getElementById("date-btn");
+const dateBtnText = document.getElementById("date-btn-text");
+const calPopover  = document.getElementById("cal-popover");
+const calTitle    = document.getElementById("cal-title");
+const calGrid     = document.getElementById("cal-grid");
+const calPrev     = document.getElementById("cal-prev");
+const calNext     = document.getElementById("cal-next");
+
+const today = new Date(); today.setHours(0,0,0,0);
+let viewYear  = today.getFullYear();
+let viewMonth = today.getMonth();
+let selectedDate = null; // "YYYY-MM-DD"
+
+// Restore from server re-render
+if (hiddenDate.value) {
+    selectedDate = hiddenDate.value;
+    const [y,m,d] = hiddenDate.value.split("-").map(Number);
+    viewYear = y; viewMonth = m - 1;
+    applyDateLabel(selectedDate);
+}
+
+function pad(n){ return String(n).padStart(2,"0"); }
+function toDateStr(y,m,d){ return `${y}-${pad(m+1)}-${pad(d)}`; }
+
+function renderCal() {
+    calTitle.textContent = `${MONTHS[viewMonth]} ${viewYear}`;
+    calGrid.innerHTML = "";
+    DOW_SHORT.forEach(l => {
+        const el = document.createElement("div");
+        el.className = "cal-dow"; el.textContent = l;
+        calGrid.appendChild(el);
+    });
+    const firstDow = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    for (let i = 0; i < firstDow; i++) {
+        const el = document.createElement("button");
+        el.type = "button"; el.className = "cal-day"; el.disabled = true;
+        calGrid.appendChild(el);
+    }
+    for (let day = 1; day <= daysInMonth; day++) {
+        const ds = toDateStr(viewYear, viewMonth, day);
+        const dt = new Date(viewYear, viewMonth, day);
+        const isPast = dt < today;
+        const el = document.createElement("button");
+        el.type = "button";
+        el.className = "cal-day" +
+            (dt.getTime() === today.getTime() ? " is-today" : "") +
+            (ds === selectedDate ? " is-selected" : "");
+        el.textContent = day;
+        el.disabled = isPast;
+        if (!isPast) el.addEventListener("click", () => pickDate(ds));
+        calGrid.appendChild(el);
+    }
+}
+
+function pickDate(ds) {
+    selectedDate = ds;
+    hiddenDate.value = ds;
+    applyDateLabel(ds);
+    updateRecurLabels();
+    calPopover.classList.remove("open");
+    dateBtn.classList.remove("open");
+    renderCal();
+}
+
+function applyDateLabel(ds) {
+    const [y,m,d] = ds.split("-").map(Number);
+    const dt = new Date(y, m-1, d);
+    dateBtnText.textContent = `${DAY_NAMES[dt.getDay()]}, ${MONTHS[m-1]} ${d}, ${y}`;
+    dateBtnText.classList.remove("date-btn-placeholder");
+}
+
+dateBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = calPopover.classList.toggle("open");
+    dateBtn.classList.toggle("open", open);
+    if (open) renderCal();
+});
+calPrev.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (--viewMonth < 0) { viewMonth = 11; viewYear--; }
+    renderCal();
+});
+calNext.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (++viewMonth > 11) { viewMonth = 0; viewYear++; }
+    renderCal();
+});
+document.addEventListener("click", (e) => {
+    if (!document.getElementById("cal-wrap").contains(e.target)) {
+        calPopover.classList.remove("open");
+        dateBtn.classList.remove("open");
+    }
+});
+
+renderCal();
+
+// ── Action → command/message toggle ─────────────────────────────────────
+const actionSel   = document.getElementById("action_id");
+const commandField = document.getElementById("command-field");
+const commandInput = document.getElementById("command");
+const messageField = document.getElementById("message-field");
+
+function onActionChange() {
+    const opt = actionSel.selectedOptions[0];
+    const name = opt ? (opt.dataset.name || "") : "";
+    const isAskAssistant = name === "ask_assistant";
+    const hasAction = actionSel.value !== "";
+
+    commandField.style.display = hasAction ? "none" : "";
+    commandInput.disabled = hasAction;
+    if (hasAction) commandInput.value = "";
+
+    messageField.classList.toggle("visible", isAskAssistant);
+}
+actionSel.addEventListener("change", onActionChange);
+onActionChange();
+
+// ── Recurrence preset labels ─────────────────────────────────────────────
+const recurSel  = document.getElementById("recur_preset");
+const optWeekly  = document.getElementById("opt-weekly");
+const optMonthly = document.getElementById("opt-monthly");
+const optAnnual  = document.getElementById("opt-annual");
+const recurHint  = document.getElementById("recur-hint");
+const submitBtn  = document.getElementById("submit-btn");
+
+function nthOf(d) {
+    const n = Math.ceil(d / 7);
+    return ["","1st","2nd","3rd","4th","5th"][n] || `${n}th`;
+}
+
+function updateRecurLabels() {
+    if (!selectedDate) return;
+    const [y,m,d] = selectedDate.split("-").map(Number);
+    const dt = new Date(y, m-1, d);
+    const dayName = DAY_NAMES[dt.getDay()];
+    if (optWeekly)  optWeekly.textContent  = `Weekly on ${dayName}`;
+    if (optMonthly) optMonthly.textContent = `Monthly on the ${nthOf(d)} ${dayName}`;
+    if (optAnnual)  optAnnual.textContent  = `Annually on ${MONTH_SHORT[m-1]} ${d}`;
+}
+
+function onRecurChange() {
+    const v = recurSel.value;
+    const isRecurring = v !== "none";
+    document.getElementById("recur-panel").classList.toggle("visible", v === "custom");
+    recurHint.style.display = isRecurring ? "" : "none";
+    submitBtn.textContent = isRecurring ? "Set Up Recurring Task" : "Schedule Task";
+    if (v === "custom") onFreqChange();
+}
+
+recurSel.addEventListener("change", onRecurChange);
+
+// ── Custom recurrence ─────────────────────────────────────────────────────
+const custFreq  = document.getElementById("cust_freq");
+const dowRow    = document.getElementById("dow-row");
+const custDays  = document.getElementById("cust_days");
+const dowBtns   = document.querySelectorAll(".dow-btn");
+
+function onFreqChange() {
+    dowRow.classList.toggle("visible", custFreq.value === "week");
+}
+custFreq.addEventListener("change", onFreqChange);
+
+function parseDays() { return (custDays.value||"").split(",").filter(Boolean); }
+function syncDow() {
+    const days = parseDays();
+    dowBtns.forEach(b => b.classList.toggle("on", days.includes(b.dataset.dow)));
+}
+dowBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+        const days = parseDays();
+        const i = days.indexOf(btn.dataset.dow);
+        if (i === -1) days.push(btn.dataset.dow);
+        else days.splice(i, 1);
+        custDays.value = days.sort((a,b) => Number(a)-Number(b)).join(",");
+        syncDow();
+    });
+});
+syncDow();
+onRecurChange();
+
+// ── Update recurrence labels on initial load (if date pre-filled) ────────
+if (selectedDate) updateRecurLabels();
+
+// ── Collapse state ───────────────────────────────────────────────────────
+const schedForm = document.getElementById("schedule-form");
+if (localStorage.getItem("schedule-form-open") === "false") {
+    schedForm.removeAttribute("open");
+}
+schedForm.addEventListener("toggle", () => {
+    localStorage.setItem("schedule-form-open", schedForm.open);
+});
+
+// ── Auto-refresh guard ───────────────────────────────────────────────────
+let _touched = false;
+document.querySelectorAll("input, select, textarea").forEach(el => {
+    el.addEventListener("input",  () => { _touched = true; });
+    el.addEventListener("focus",  () => { _touched = true; });
+    el.addEventListener("change", () => { _touched = true; });
+});
+setTimeout(() => { if (!_touched) location.reload(); }, 30000);
+
+})();
+</script>
+{% endblock %}

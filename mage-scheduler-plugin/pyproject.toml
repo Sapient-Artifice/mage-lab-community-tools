@@ -9,9 +9,6 @@ authors = [
     {name = "Mage Lab Community Tools Contributors"},
 ]
 
-[project.urls]
-Repository = "https://github.com/mage-lab/mage-lab-community-tools"
-
 dependencies = [
     "apscheduler>=3.10.0",
     "croniter>=1.4.0",
@@ -25,6 +22,9 @@ dependencies = [
     "uvicorn>=0.30.0",
     "tzdata>=2024.1; sys_platform == 'win32'",
 ]
+
+[project.urls]
+Repository = "https://github.com/mage-lab/mage-lab-community-tools"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
