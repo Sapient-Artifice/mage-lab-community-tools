@@ -8,7 +8,7 @@ Drop the directory into `~/Mage/Skills/mage-scheduler/` and it works.
 
 ## Features
 
-- **Zero external dependencies** — no Redis, no Celery, no message broker. APScheduler runs in-process.
+- **Zero external dependencies** — APScheduler runs in-process.
 - **One-off tasks** — schedule a command to run at a specific time or after a delay (`run_at`, `run_in`).
 - **Recurring tasks** — cron-driven schedules (`0 9 * * 1` = every Monday at 9am) with per-timezone support.
 - **Dependency chains** — `depends_on: [task_id, ...]` holds a task as `waiting` until its upstream tasks complete or cascade-fail it.
@@ -93,7 +93,7 @@ A **Task** (`TaskRequest`) is a single scheduled execution. Fields:
 | `command` | Shell command to run |
 | `run_at` | UTC datetime to execute |
 | `status` | `scheduled` → `running` → `success` / `failed` / `cancelled` |
-| `celery_task_id` | APScheduler job ID (used for cancellation) |
+| `job_id` | APScheduler job ID (used for cancellation) |
 | `result` | Captured stdout (truncated to 4000 chars) |
 | `error` | Captured stderr or failure reason |
 | `action_name` | Source action if scheduled via an action |

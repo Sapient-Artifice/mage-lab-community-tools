@@ -184,7 +184,7 @@ class TaskRead(BaseModel):
     command: str
     run_at: datetime
     status: str
-    celery_task_id: str | None = None
+    job_id: str | None = None
     result: str | None = None
     error: str | None = None
     action_id: int | None = None

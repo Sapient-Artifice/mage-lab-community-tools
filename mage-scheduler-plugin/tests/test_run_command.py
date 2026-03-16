@@ -210,7 +210,7 @@ class TestRunCommand:
         rc.run_command(task_id, "echo ok")
 
         s = _session(factory)
-        assert s.get(TaskRequest, task_id).celery_task_id == "updated-job-id"
+        assert s.get(TaskRequest, task_id).job_id == "updated-job-id"
         s.close()
 
     def test_retries_exhausted_sets_status_to_failed(self, nt_mem_db, monkeypatch):

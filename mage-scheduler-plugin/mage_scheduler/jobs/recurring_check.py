@@ -90,7 +90,7 @@ def _spawn_task(session, rt: RecurringTask, now_utc: datetime) -> None:
     from dispatch import schedule_command
     now_aware = now_utc.replace(tzinfo=timezone.utc)
     job_id = schedule_command(task_request.id, command, now_aware)
-    task_request.celery_task_id = job_id
+    task_request.job_id = job_id
 
     rt.last_run_at = now_utc
     rt.next_run_at = _compute_next_run(rt.cron, rt.timezone, now_utc)

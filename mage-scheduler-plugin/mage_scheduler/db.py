@@ -39,12 +39,22 @@ def init_db() -> None:
     _seed_default_actions()
 
 
-_ASK_ASSISTANT_SCRIPT = Path(__file__).resolve().parent / "scripts" / "ask_assistant.py"
+def _ask_assistant_command() -> str:
+    """Return the canonical command for the ask_assistant action.
+
+    Uses the venv Python that owns this installation so the path stays correct
+    regardless of which machine or directory the plugin lives in.
+    """
+    script = Path(__file__).resolve().parent / "scripts" / "ask_assistant.py"
+    venv_python = Path(__file__).resolve().parent.parent / ".venv" / "bin" / "python"
+    python = str(venv_python) if venv_python.exists() else "/usr/bin/python3"
+    return f"{python} {script}"
 
 
 def _seed_default_actions() -> None:
     from models import Action
 
+    command = _ask_assistant_command()
     with SessionLocal() as session:
         existing = session.execute(
             select(Action).where(Action.name == "ask_assistant")
@@ -53,11 +63,15 @@ def _seed_default_actions() -> None:
             action = Action(
                 name="ask_assistant",
                 description="Send a scheduled message to the assistant.",
-                command=f"/usr/bin/python3 {_ASK_ASSISTANT_SCRIPT}",
+                command=command,
                 allowed_env_json=json.dumps(["MESSAGE"]),
             )
             session.add(action)
-            session.commit()
+        else:
+            # Keep the command current — stale paths cause silent failures after
+            # the plugin is moved, renamed, or reinstalled on a new machine.
+            existing.command = command
+        session.commit()
 
 
 def _migrate_schema() -> None:
@@ -65,6 +79,7 @@ def _migrate_schema() -> None:
         columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(task_requests)").fetchall()}
         if not columns:
             return
+        _rename_column_if_exists(connection, "task_requests", columns, "celery_task_id", "job_id", "TEXT")
         _add_column_if_missing(connection, "task_requests", columns, "intent_version", "TEXT")
         _add_column_if_missing(connection, "task_requests", columns, "source", "TEXT")
         _add_column_if_missing(connection, "task_requests", columns, "action_id", "INTEGER")
@@ -98,6 +113,27 @@ def _migrate_schema() -> None:
             _add_column_if_missing(connection, "settings", settings_columns, "allowed_cwd_dirs_json", "TEXT")
             _add_column_if_missing(connection, "settings", settings_columns, "cleanup_enabled", "INTEGER NOT NULL DEFAULT 0")
             _add_column_if_missing(connection, "settings", settings_columns, "task_retention_days", "INTEGER NOT NULL DEFAULT 30")
+
+
+def _rename_column_if_exists(
+    connection,
+    table_name: str,
+    columns: set[str],
+    old_name: str,
+    new_name: str,
+    column_type: str,
+) -> None:
+    if new_name in columns:
+        return  # already renamed
+    if old_name in columns:
+        connection.exec_driver_sql(
+            f"ALTER TABLE {table_name} RENAME COLUMN {old_name} TO {new_name}"
+        )
+    else:
+        # Neither exists — add the new column fresh
+        connection.exec_driver_sql(
+            f"ALTER TABLE {table_name} ADD COLUMN {new_name} {column_type}"
+        )
 
 
 def _add_column_if_missing(

@@ -118,7 +118,7 @@ def run_command(task_request_id: int, command: str) -> dict:
             from dispatch import schedule_command
             next_run = datetime.now(timezone.utc) + timedelta(seconds=retry_delay_secs)
             job_id = schedule_command(task_request_id, command, next_run)
-            task_request.celery_task_id = job_id
+            task_request.job_id = job_id
             session.commit()
             return {
                 "retrying": True,
@@ -216,4 +216,4 @@ def _schedule_waiting_task(session, wt: TaskRequest) -> None:
     wt.status = "scheduled"
     session.commit()
     job_id = schedule_command(wt.id, wt.command, run_at)
-    wt.celery_task_id = job_id
+    wt.job_id = job_id

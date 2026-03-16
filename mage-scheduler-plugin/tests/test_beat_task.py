@@ -33,10 +33,10 @@ class TestScheduleWaitingTaskBeat:
         self._call(db_session, wt)
         assert wt.status == "scheduled"
 
-    def test_celery_task_id_is_set(self, db_session):
+    def test_job_id_is_set(self, db_session):
         wt = make_task(db_session, status="waiting")
         self._call(db_session, wt, job_id="beat-job-123")
-        assert wt.celery_task_id == "beat-job-123"
+        assert wt.job_id == "beat-job-123"
 
     def test_schedule_command_called_once(self, db_session):
         wt = make_task(db_session, status="waiting")

@@ -35,7 +35,7 @@ class TaskManager:
 
             run_at_aware = run_at_utc.replace(tzinfo=timezone.utc)
             job_id = schedule_command(task_request.id, command, run_at_aware)
-            task_request.celery_task_id = job_id
+            task_request.job_id = job_id
             session.commit()
 
             return task_request.id

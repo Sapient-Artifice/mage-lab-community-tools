@@ -580,7 +580,7 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    cancel_command(task.celery_task_id, terminate=False)
+    cancel_command(task.job_id, terminate=False)
 
     db.delete(task)
     db.commit()
@@ -597,7 +597,7 @@ def cancel_task(task_id: int, db: Session = Depends(get_db)):
             status_code=400,
             detail=f"Cannot cancel task with status '{task.status}'",
         )
-    cancel_command(task.celery_task_id, terminate=True)
+    cancel_command(task.job_id, terminate=True)
     task.status = "cancelled"
     db.commit()
     _cascade_fail_dependents(db, task_id, f"Dependency task {task_id} failed or was cancelled.")
@@ -1458,7 +1458,7 @@ def create_task_from_intent(payload: TaskIntentEnvelope):
                 )
             ).scalars().all()
             for et in existing_tasks:
-                cancel_command(et.celery_task_id, terminate=True)
+                cancel_command(et.job_id, terminate=True)
                 et.status = "cancelled"
                 replaced_task_ids.append(et.id)
             if replaced_task_ids:

@@ -380,7 +380,7 @@ class TestCancelTask:
             s2.close()
 
     def test_cancel_calls_cancel_command(self, api_client, monkeypatch):
-        """When celery_task_id is set, cancel_command must be called with the job_id."""
+        """When job_id is set, cancel_command must be called with the job_id."""
         client, factory = api_client
         s = _session(factory)
         try:
@@ -390,7 +390,7 @@ class TestCancelTask:
                 command="echo ok",
                 run_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 status="running",
-                celery_task_id="apscheduler-job-abc-123",
+                job_id="apscheduler-job-abc-123",
             )
             s.add(t)
             s.commit()

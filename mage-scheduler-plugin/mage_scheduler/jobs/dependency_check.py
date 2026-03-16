@@ -65,4 +65,4 @@ def _schedule_waiting_task_beat(session, wt: TaskRequest) -> None:
     wt.status = "scheduled"
     session.flush()
     job_id = schedule_command(wt.id, wt.command, run_at)
-    wt.celery_task_id = job_id
+    wt.job_id = job_id

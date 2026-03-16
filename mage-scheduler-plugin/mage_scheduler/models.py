@@ -87,7 +87,7 @@ class TaskRequest(Base):
     command = Column(Text, nullable=False)
     run_at = Column(DateTime, nullable=False)
     status = Column(Text, default="scheduled", nullable=False)
-    celery_task_id = Column(Text, nullable=True)
+    job_id = Column(Text, nullable=True)
     result = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
     intent_version = Column(Text, nullable=True)
