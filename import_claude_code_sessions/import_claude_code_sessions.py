@@ -144,6 +144,95 @@ def _extract_content(
     return "\n\n".join(parts)
 
 
+def _extract_assistant_messages(
+    content_raw: Any,
+    include_thinking: bool,
+    tool_id_to_name: Dict[str, str],
+    truncate: Optional[int],
+) -> List[Dict[str, Any]]:
+    """Convert one assistant event's content to a list of Mage message dicts.
+
+    Returns zero or one message. The message uses the native Mage format:
+    ``role: "assistant"`` with an optional ``tool_calls`` list so that
+    ``decorateHistoryMessages`` can generate toggleable tool-debug bubbles.
+
+    :param content_raw: The message.content value — str or list of dicts.
+    :param include_thinking: Whether to include extended thinking blocks.
+    :param tool_id_to_name: Mutable dict updated with id→name for each
+        tool_use block seen, so tool results can look up the tool name.
+    :param truncate: If set, trim ``arguments`` strings to this many chars.
+    :return: List of zero or one Mage message dicts.
+    """
+    if isinstance(content_raw, str):
+        text = content_raw.strip()
+        return [{"role": "assistant", "content": text}] if text else []
+
+    if not isinstance(content_raw, list):
+        return []
+
+    text_parts: List[str] = []
+    tool_calls: List[Dict[str, Any]] = []
+
+    for block in content_raw:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type", "")
+
+        if btype == "text":
+            text = (block.get("text") or "").strip()
+            if text:
+                text_parts.append(text)
+
+        elif btype == "thinking" and include_thinking:
+            thinking = (block.get("thinking") or "").strip()
+            if thinking:
+                text_parts.append(f"[Thinking: {thinking}]")
+
+        elif btype == "tool_use":
+            name = block.get("name", "unknown")
+            tool_id = block.get("id", "")
+            if tool_id:
+                tool_id_to_name[tool_id] = name
+            inp = block.get("input") or {}
+            try:
+                args_str = json.dumps(inp, ensure_ascii=False)
+            except Exception:
+                args_str = str(inp)
+            if truncate is not None and len(args_str) > truncate:
+                args_str = args_str[:truncate] + " \u2026 [truncated]"
+            tool_calls.append({"function": {"name": name, "arguments": args_str}})
+
+    content = "\n\n".join(text_parts)
+    if not content and not tool_calls:
+        return []
+
+    msg: Dict[str, Any] = {"role": "assistant", "content": content}
+    if tool_calls:
+        msg["tool_calls"] = tool_calls
+    return [msg]
+
+
+def _extract_user_messages(
+    content_raw: Any,
+    tool_id_to_name: Dict[str, str],
+    truncate: Optional[int],
+) -> List[Dict[str, Any]]:
+    """Convert one user event's content to a list of Mage message dicts.
+
+    May return zero, one, or many messages depending on content structure.
+    Tool results are emitted as separate "tool" role messages, while text
+    is emitted as "user" role messages.
+
+    :param content_raw: The message.content value — str or list of dicts.
+    :param tool_id_to_name: Dict mapping tool_use_id → tool name, populated
+        by previous assistant messages.
+    :param truncate: If set, trim result content to this many chars.
+    :return: List of Mage message dicts (zero or more).
+    """
+    # TODO: Implement this function in Task 4
+    return []
+
+
 # ---------------------------------------------------------------------------
 # Metadata extraction
 # ---------------------------------------------------------------------------
