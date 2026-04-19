@@ -191,7 +191,7 @@ Running the import more than once on the same export is safe. Files are matched 
 
 ## Contributing
 
-This tool is part of the [Mage Lab community tools](https://github.com/magelab) collection. Community tools are loaded by Mage when `EXTRA_TOOLS=true` is set and are intended to be independently useful scripts that any Mage user can drop in and run.
+This tool is part of the [Mage Lab community tools](https://github.com/magelab) collection. Community tools are intended to be independently useful scripts that any Mage user can drop in and run.
 
 If Claude.ai changes their export format, the relevant section to update is `_extract_text_from_content()` and `_load_conversations()` in the script.
 
