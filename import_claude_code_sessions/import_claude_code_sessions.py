@@ -219,18 +219,70 @@ def _extract_user_messages(
 ) -> List[Dict[str, Any]]:
     """Convert one user event's content to a list of Mage message dicts.
 
-    May return zero, one, or many messages depending on content structure.
-    Tool results are emitted as separate "tool" role messages, while text
-    is emitted as "user" role messages.
+    Tool result blocks become ``role: "tool"`` messages (rendered only when
+    tool-debug is on). Text blocks become a single ``role: "user"`` message.
+    If the turn has no text blocks, no user message is emitted.
 
     :param content_raw: The message.content value — str or list of dicts.
-    :param tool_id_to_name: Dict mapping tool_use_id → tool name, populated
-        by previous assistant messages.
-    :param truncate: If set, trim result content to this many chars.
-    :return: List of Mage message dicts (zero or more).
+    :param tool_id_to_name: Dict of tool_use_id→name built from assistant
+        events, used to populate the ``name`` field on tool messages.
+    :param truncate: If set, trim result ``content`` to this many chars.
+    :return: List of zero or more Mage message dicts.
     """
-    # TODO: Implement this function in Task 4
-    return []
+    if isinstance(content_raw, str):
+        text = content_raw.strip()
+        return [{"role": "user", "content": text}] if text else []
+
+    if not isinstance(content_raw, list):
+        return []
+
+    tool_messages: List[Dict[str, Any]] = []
+    text_parts: List[str] = []
+
+    for block in content_raw:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type", "")
+
+        if btype == "tool_result":
+            tool_id = block.get("tool_use_id", "")
+            is_error = bool(block.get("is_error"))
+            result_content = block.get("content") or ""
+
+            if isinstance(result_content, list):
+                result_texts = []
+                for item in result_content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        t = (item.get("text") or "").strip()
+                        if t:
+                            result_texts.append(t)
+                result_str = "\n".join(result_texts) if result_texts else "[no result]"
+            elif isinstance(result_content, str):
+                result_str = result_content.strip() or "[no result]"
+            else:
+                result_str = "[no result]"
+
+            if is_error:
+                result_str = f"[error] {result_str}"
+
+            if truncate is not None and len(result_str) > truncate:
+                result_str = result_str[:truncate] + " \u2026 [truncated]"
+
+            tool_messages.append({
+                "role": "tool",
+                "name": tool_id_to_name.get(tool_id, ""),
+                "content": result_str,
+            })
+
+        elif btype == "text":
+            text = (block.get("text") or "").strip()
+            if text:
+                text_parts.append(text)
+
+    result: List[Dict[str, Any]] = list(tool_messages)
+    if text_parts:
+        result.append({"role": "user", "content": "\n\n".join(text_parts)})
+    return result
 
 
 # ---------------------------------------------------------------------------
