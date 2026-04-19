@@ -457,55 +457,57 @@ def _convert_session(
     project_dir_name: str,
     index_meta: Optional[Dict[str, Any]],
     include_thinking: bool = False,
-) -> List[Dict[str, str]]:
+    truncate_tool_args: Optional[int] = None,
+) -> List[Dict[str, Any]]:
     """Convert one Claude Code session JSONL file to Mage message list.
 
     :param session_file: Path to the .jsonl session file.
     :param project_dir_name: Encoded project directory name.
     :param index_meta: Optional sessions-index.json entry for this session.
     :param include_thinking: Whether to include extended thinking blocks.
-    :return: List of {role, content} dicts ready for a Mage chat file.
+    :param truncate_tool_args: If set, trim tool arguments and results to
+        this many characters. None (default) preserves full fidelity.
+    :return: List of {role, content, ...} dicts ready for a Mage chat file.
     """
     events = _read_jsonl(session_file)
     if not events:
         return []
 
     meta = _session_metadata_from_events(events)
-    messages: List[Dict[str, str]] = [
+    messages: List[Dict[str, Any]] = [
         _build_system_message(session_file, project_dir_name, meta, index_meta)
     ]
+
+    # Maps tool_use id → tool name so tool results can carry the tool name.
+    tool_id_to_name: Dict[str, str] = {}
 
     for event in events:
         etype = event.get("type", "")
 
-        # Normalise type names — Claude Code uses both "user"/"human"
-        # and "assistant" as top-level event types.
         if etype in ("user", "human"):
-            role = "user"
+            role_type = "user"
         elif etype == "assistant":
-            role = "assistant"
+            role_type = "assistant"
         else:
-            # Skip non-message events: file-history-snapshot, queue-operation,
-            # system, summary, etc.
             continue
 
         msg = event.get("message") or {}
         content_raw = msg.get("content")
         if content_raw is None:
-            # Some older formats put content at top level
             content_raw = event.get("content")
         if content_raw is None:
             continue
 
-        text = _extract_content(content_raw, include_thinking=include_thinking)
+        if role_type == "assistant":
+            new_msgs = _extract_assistant_messages(
+                content_raw, include_thinking, tool_id_to_name, truncate_tool_args
+            )
+        else:
+            new_msgs = _extract_user_messages(
+                content_raw, tool_id_to_name, truncate_tool_args
+            )
 
-        # For user messages that are tool results, the text can be very long
-        # and noisy.  Keep it but truncate extreme cases.
-        if not text:
-            logger.debug("Skipping empty %s message in %s", role, session_file.name)
-            continue
-
-        messages.append({"role": role, "content": text})
+        messages.extend(new_msgs)
 
     return messages
 
