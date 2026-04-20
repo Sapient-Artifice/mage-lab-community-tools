@@ -28,24 +28,30 @@ That's it. With no arguments, it reads from `~/.claude/projects/` and writes to 
 
 ## Recommended workflow: backup + import
 
-The tool is designed for a two-step scheduled workflow:
-
-**Step 1 — rsync your Claude Code data to a stable backup location:**
+The simplest setup is a single shell script that backs up and imports in sequence. Save this as `~/Mage/Scheduler/scripts/claude-code-backup-and-import.sh` and schedule it with Mage Lab's scheduler:
 
 ```bash
+#!/bin/bash
+set -euo pipefail
+
+mkdir -p ~/backups/claude-code/projects/
+
+echo "Starting backup: $(date)"
 rsync -a --delete ~/.claude/projects/ ~/backups/claude-code/projects/
 rsync -a ~/.claude/history.jsonl ~/backups/claude-code/
+echo "Backup completed: $(date)"
+
+echo "Starting import: $(date)"
+python3 ~/Mage/Tools/import_claude_code_sessions.py ~/backups/claude-code/projects/ --overwrite
+echo "Import completed: $(date)"
 ```
 
-**Step 2 — run the import against the backup (not the live data):**
+The key points:
+- **Import from the backup copy**, not `~/.claude/projects/` directly — avoids reading files that Claude Code may be writing mid-session.
+- **`--overwrite`** regenerates existing files on each run, so long-running sessions that accumulated new messages since last import stay up to date.
+- The script runs both steps together. If you want to retry the import independently of the backup (or run them on different schedules), split them into two separate scheduler tasks and set the import as a dependent job of the backup.
 
-```bash
-python import_claude_code_sessions.py ~/backups/claude-code/projects/
-```
-
-If you're using Mage Lab's scheduler, set step 2 as a dependent job that runs after step 1 completes.
-
-On each run the tool skips sessions that have already been imported (by output filename match), so it's naturally incremental — no state file, no database, no tracking to manage.
+On each run the tool skips sessions that haven't changed (by output filename match when not using `--overwrite`), so without that flag it's naturally incremental — no state file, no database, no tracking to manage.
 
 ## Usage
 
