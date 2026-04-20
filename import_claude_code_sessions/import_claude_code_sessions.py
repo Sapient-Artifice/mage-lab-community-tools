@@ -3,7 +3,7 @@
 
 CLI usage:
 
-    python import_claude_code_sessions.py [input_dir] [output_dir] [--thinking] [--overwrite] [--include-agents]
+    python import_claude_code_sessions.py [input_dir] [output_dir] [--thinking] [--overwrite] [--include-agents] [--truncate-tool-args N]
 
     input_dir     Path to the projects/ directory to scan (default: ~/.claude/projects).
                   Point this at an rsync backup copy to avoid touching live data.
@@ -11,6 +11,9 @@ CLI usage:
     --thinking    Include Claude's extended thinking blocks as annotations.
     --overwrite   Replace existing files instead of skipping them.
     --include-agents  Also import sub-agent session files (agent-*.jsonl).
+    --truncate-tool-args N  Trim tool arguments and results to N chars. Off by
+                            default (full fidelity). Enable to reduce file size
+                            when sessions contain large file writes or output.
 
 Mage tool usage:
 
@@ -626,6 +629,7 @@ def import_claude_code_sessions(
     include_thinking: bool = False,
     overwrite: bool = False,
     include_agents: bool = False,
+    truncate_tool_args: Optional[int] = None,
 ) -> str:
     """Import Claude Code CLI session transcripts into Mage Lab format.
 
@@ -645,6 +649,9 @@ def import_claude_code_sessions(
     :param include_agents: If True, also import sub-agent session files
         (agent-*.jsonl).  These are excluded by default since they are
         side conversations spawned by the main session.
+    :param truncate_tool_args: When set to an integer N, tool call arguments
+        and tool results longer than N characters are trimmed with a
+        " … [truncated]" suffix. Default None preserves full fidelity.
     :return: Human-readable summary of the import result.
     """
     # Resolve input directory
@@ -722,6 +729,7 @@ def import_claude_code_sessions(
                 project_dir_name,
                 index_meta,
                 include_thinking=include_thinking,
+                truncate_tool_args=truncate_tool_args,
             )
 
             if len(messages) <= 1:
@@ -817,6 +825,7 @@ try:
             "include_thinking",
             "overwrite",
             "include_agents",
+            "truncate_tool_args",
         ],
     )(import_claude_code_sessions)
 except ImportError:
@@ -863,6 +872,17 @@ def _cli() -> None:
         default=False,
         help="Also import sub-agent session files (agent-*.jsonl).",
     )
+    parser.add_argument(
+        "--truncate-tool-args",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Trim tool call arguments and results to N characters, appending"
+            " ' … [truncated]'. Default: off (full fidelity). Useful when"
+            " storing sessions with very large file writes or command output."
+        ),
+    )
 
     args = parser.parse_args()
     result = import_claude_code_sessions(
@@ -871,6 +891,7 @@ def _cli() -> None:
         include_thinking=args.thinking,
         overwrite=args.overwrite,
         include_agents=args.include_agents,
+        truncate_tool_args=args.truncate_tool_args,
     )
     print(result)
 
