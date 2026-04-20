@@ -76,77 +76,6 @@ def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
 # Content extraction — mirrors import_claude_history.py's approach
 # ---------------------------------------------------------------------------
 
-def _extract_content(
-    content: Any,
-    include_thinking: bool = False,
-) -> str:
-    """Convert a message's content field to plain text.
-
-    Claude Code messages have polymorphic content: either a plain string
-    (most user messages) or a list of typed content blocks (assistant
-    messages, tool-result user messages).
-
-    Tool calls and results are rendered as readable inline annotations
-    using the same bracket format as import_claude_history.py.
-
-    :param content: The message.content value — str or list of dicts.
-    :param include_thinking: Whether to include extended thinking blocks.
-    :return: Joined text suitable for a Mage message content field.
-    """
-    if isinstance(content, str):
-        return content.strip()
-
-    if not isinstance(content, list):
-        return str(content).strip()
-
-    parts: List[str] = []
-    for block in content:
-        if not isinstance(block, dict):
-            continue
-
-        btype = block.get("type", "")
-
-        if btype == "text":
-            text = (block.get("text") or "").strip()
-            if text:
-                parts.append(text)
-
-        elif btype == "thinking" and include_thinking:
-            thinking = (block.get("thinking") or "").strip()
-            if thinking:
-                parts.append(f"[Extended thinking: {thinking}]")
-
-        elif btype == "tool_use":
-            name = block.get("name", "unknown")
-            inp = block.get("input") or {}
-            try:
-                inp_str = json.dumps(inp, ensure_ascii=False)
-            except Exception:
-                inp_str = str(inp)
-            parts.append(f"[Tool call: {name}({inp_str})]")
-
-        elif btype == "tool_result":
-            tool_id = block.get("tool_use_id", "unknown")
-            is_error = bool(block.get("is_error"))
-            result_content = block.get("content") or ""
-            if isinstance(result_content, list):
-                result_texts = []
-                for item in result_content:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        t = (item.get("text") or "").strip()
-                        if t:
-                            result_texts.append(t)
-                result_str = "; ".join(result_texts) if result_texts else "[no result]"
-            elif isinstance(result_content, str):
-                result_str = result_content.strip() or "[no result]"
-            else:
-                result_str = "[no result]"
-            label = "Tool error" if is_error else "Tool result"
-            parts.append(f"[{label} ({tool_id}): {result_str}]")
-
-    return "\n\n".join(parts)
-
-
 def _extract_assistant_messages(
     content_raw: Any,
     include_thinking: bool,
@@ -449,8 +378,8 @@ def _build_system_message(
         f"Session last activity: {last_ts}",
         f"Imported into Mage Lab: {import_time}",
         "",
-        "This is a read-only historical record. Tool calls and their results are"
-        " represented as inline annotations wrapped in [square brackets].",
+        "This is a read-only historical record. Tool calls and results are"
+        " stored in native Mage format and shown in the tool-debug panel.",
     ]
     return {"role": "system", "content": "\n".join(lines)}
 
