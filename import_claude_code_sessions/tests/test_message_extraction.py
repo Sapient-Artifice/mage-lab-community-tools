@@ -101,9 +101,9 @@ def test_assistant_truncate_arguments():
     ]
     msgs = _extract_assistant_messages(content, False, {}, 50)
     args_str = msgs[0]["tool_calls"][0]["function"]["arguments"]
-    assert args_str.endswith(" … [truncated]")
-    # Total length: 50 chars of original + suffix
-    assert len(args_str) < 200
+    parsed = json.loads(args_str)  # must parse as valid JSON
+    assert parsed.get("_truncated") is True
+    assert "preview" in parsed
 
 
 def test_assistant_no_truncate_when_short():

@@ -131,7 +131,15 @@ def _extract_assistant_messages(
             except Exception:
                 args_str = str(inp)
             if truncate is not None and len(args_str) > truncate:
-                args_str = args_str[:truncate] + " \u2026 [truncated]"
+                try:
+                    preview = json.dumps(inp, ensure_ascii=False, separators=(",", ":"))
+                    preview = preview[:truncate]
+                except Exception:
+                    preview = args_str[:truncate]
+                args_str = json.dumps(
+                    {"_truncated": True, "preview": preview},
+                    ensure_ascii=False,
+                )
             tool_calls.append({"function": {"name": name, "arguments": args_str}})
 
     content = "\n\n".join(text_parts)
