@@ -3,7 +3,7 @@
 
 CLI usage:
 
-    python import_claude_code_sessions.py [input_dir] [output_dir] [--thinking] [--overwrite] [--include-agents]
+    python import_claude_code_sessions.py [input_dir] [output_dir] [--thinking] [--overwrite] [--include-agents] [--truncate-tool-args N]
 
     input_dir     Path to the projects/ directory to scan (default: ~/.claude/projects).
                   Point this at an rsync backup copy to avoid touching live data.
@@ -11,6 +11,9 @@ CLI usage:
     --thinking    Include Claude's extended thinking blocks as annotations.
     --overwrite   Replace existing files instead of skipping them.
     --include-agents  Also import sub-agent session files (agent-*.jsonl).
+    --truncate-tool-args N  Trim tool arguments and results to N chars. Off by
+                            default (full fidelity). Enable to reduce file size
+                            when sessions contain large file writes or output.
 
 Mage tool usage:
 
@@ -73,59 +76,119 @@ def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
 # Content extraction — mirrors import_claude_history.py's approach
 # ---------------------------------------------------------------------------
 
-def _extract_content(
-    content: Any,
-    include_thinking: bool = False,
-) -> str:
-    """Convert a message's content field to plain text.
+def _extract_assistant_messages(
+    content_raw: Any,
+    include_thinking: bool,
+    tool_id_to_name: Dict[str, str],
+    truncate: Optional[int],
+) -> List[Dict[str, Any]]:
+    """Convert one assistant event's content to a list of Mage message dicts.
 
-    Claude Code messages have polymorphic content: either a plain string
-    (most user messages) or a list of typed content blocks (assistant
-    messages, tool-result user messages).
+    Returns zero or one message. The message uses the native Mage format:
+    ``role: "assistant"`` with an optional ``tool_calls`` list so that
+    ``decorateHistoryMessages`` can generate toggleable tool-debug bubbles.
 
-    Tool calls and results are rendered as readable inline annotations
-    using the same bracket format as import_claude_history.py.
-
-    :param content: The message.content value — str or list of dicts.
+    :param content_raw: The message.content value — str or list of dicts.
     :param include_thinking: Whether to include extended thinking blocks.
-    :return: Joined text suitable for a Mage message content field.
+    :param tool_id_to_name: Mutable dict updated with id→name for each
+        tool_use block seen, so tool results can look up the tool name.
+    :param truncate: If set, trim ``arguments`` strings to this many chars.
+    :return: List of zero or one Mage message dicts.
     """
-    if isinstance(content, str):
-        return content.strip()
+    if isinstance(content_raw, str):
+        text = content_raw.strip()
+        return [{"role": "assistant", "content": text}] if text else []
 
-    if not isinstance(content, list):
-        return str(content).strip()
+    if not isinstance(content_raw, list):
+        return []
 
-    parts: List[str] = []
-    for block in content:
+    text_parts: List[str] = []
+    tool_calls: List[Dict[str, Any]] = []
+
+    for block in content_raw:
         if not isinstance(block, dict):
             continue
-
         btype = block.get("type", "")
 
         if btype == "text":
             text = (block.get("text") or "").strip()
             if text:
-                parts.append(text)
+                text_parts.append(text)
 
         elif btype == "thinking" and include_thinking:
             thinking = (block.get("thinking") or "").strip()
             if thinking:
-                parts.append(f"[Extended thinking: {thinking}]")
+                text_parts.append(f"[Thinking: {thinking}]")
 
         elif btype == "tool_use":
             name = block.get("name", "unknown")
+            tool_id = block.get("id", "")
+            if tool_id:
+                tool_id_to_name[tool_id] = name
             inp = block.get("input") or {}
             try:
-                inp_str = json.dumps(inp, ensure_ascii=False)
+                args_str = json.dumps(inp, ensure_ascii=False)
             except Exception:
-                inp_str = str(inp)
-            parts.append(f"[Tool call: {name}({inp_str})]")
+                args_str = str(inp)
+            if truncate is not None and len(args_str) > truncate:
+                try:
+                    preview = json.dumps(inp, ensure_ascii=False, separators=(",", ":"))
+                    preview = preview[:truncate]
+                except Exception:
+                    preview = args_str[:truncate]
+                args_str = json.dumps(
+                    {"_truncated": True, "preview": preview},
+                    ensure_ascii=False,
+                )
+            tool_calls.append({"function": {"name": name, "arguments": args_str}})
 
-        elif btype == "tool_result":
-            tool_id = block.get("tool_use_id", "unknown")
+    content = "\n\n".join(text_parts)
+    if not content and not tool_calls:
+        return []
+
+    msg: Dict[str, Any] = {"role": "assistant", "content": content}
+    if tool_calls:
+        msg["tool_calls"] = tool_calls
+    return [msg]
+
+
+def _extract_user_messages(
+    content_raw: Any,
+    tool_id_to_name: Dict[str, str],
+    truncate: Optional[int],
+) -> List[Dict[str, Any]]:
+    """Convert one user event's content to a list of Mage message dicts.
+
+    Tool result blocks become ``role: "tool"`` messages (rendered only when
+    tool-debug is on). Text blocks become a single ``role: "user"`` message.
+    If the turn has no text blocks, no user message is emitted.
+
+    :param content_raw: The message.content value — str or list of dicts.
+    :param tool_id_to_name: Dict of tool_use_id→name built from assistant
+        events, used to populate the ``name`` field on tool messages.
+    :param truncate: If set, trim result ``content`` to this many chars.
+    :return: List of zero or more Mage message dicts.
+    """
+    if isinstance(content_raw, str):
+        text = content_raw.strip()
+        return [{"role": "user", "content": text}] if text else []
+
+    if not isinstance(content_raw, list):
+        return []
+
+    tool_messages: List[Dict[str, Any]] = []
+    text_parts: List[str] = []
+
+    for block in content_raw:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type", "")
+
+        if btype == "tool_result":
+            tool_id = block.get("tool_use_id", "")
             is_error = bool(block.get("is_error"))
             result_content = block.get("content") or ""
+
             if isinstance(result_content, list):
                 result_texts = []
                 for item in result_content:
@@ -133,15 +196,33 @@ def _extract_content(
                         t = (item.get("text") or "").strip()
                         if t:
                             result_texts.append(t)
-                result_str = "; ".join(result_texts) if result_texts else "[no result]"
+                result_str = "\n".join(result_texts) if result_texts else "[no result]"
             elif isinstance(result_content, str):
                 result_str = result_content.strip() or "[no result]"
             else:
                 result_str = "[no result]"
-            label = "Tool error" if is_error else "Tool result"
-            parts.append(f"[{label} ({tool_id}): {result_str}]")
 
-    return "\n\n".join(parts)
+            if is_error:
+                result_str = f"[error] {result_str}"
+
+            if truncate is not None and len(result_str) > truncate:
+                result_str = result_str[:truncate] + " \u2026 [truncated]"
+
+            tool_messages.append({
+                "role": "tool",
+                "name": tool_id_to_name.get(tool_id, ""),
+                "content": result_str,
+            })
+
+        elif btype == "text":
+            text = (block.get("text") or "").strip()
+            if text:
+                text_parts.append(text)
+
+    result: List[Dict[str, Any]] = list(tool_messages)
+    if text_parts:
+        result.append({"role": "user", "content": "\n\n".join(text_parts)})
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -305,8 +386,8 @@ def _build_system_message(
         f"Session last activity: {last_ts}",
         f"Imported into Mage Lab: {import_time}",
         "",
-        "This is a read-only historical record. Tool calls and their results are"
-        " represented as inline annotations wrapped in [square brackets].",
+        "This is a read-only historical record. Tool calls and results are"
+        " stored in native Mage format and shown in the tool-debug panel.",
     ]
     return {"role": "system", "content": "\n".join(lines)}
 
@@ -316,55 +397,57 @@ def _convert_session(
     project_dir_name: str,
     index_meta: Optional[Dict[str, Any]],
     include_thinking: bool = False,
-) -> List[Dict[str, str]]:
+    truncate_tool_args: Optional[int] = None,
+) -> List[Dict[str, Any]]:
     """Convert one Claude Code session JSONL file to Mage message list.
 
     :param session_file: Path to the .jsonl session file.
     :param project_dir_name: Encoded project directory name.
     :param index_meta: Optional sessions-index.json entry for this session.
     :param include_thinking: Whether to include extended thinking blocks.
-    :return: List of {role, content} dicts ready for a Mage chat file.
+    :param truncate_tool_args: If set, trim tool arguments and results to
+        this many characters. None (default) preserves full fidelity.
+    :return: List of {role, content, ...} dicts ready for a Mage chat file.
     """
     events = _read_jsonl(session_file)
     if not events:
         return []
 
     meta = _session_metadata_from_events(events)
-    messages: List[Dict[str, str]] = [
+    messages: List[Dict[str, Any]] = [
         _build_system_message(session_file, project_dir_name, meta, index_meta)
     ]
+
+    # Maps tool_use id → tool name so tool results can carry the tool name.
+    tool_id_to_name: Dict[str, str] = {}
 
     for event in events:
         etype = event.get("type", "")
 
-        # Normalise type names — Claude Code uses both "user"/"human"
-        # and "assistant" as top-level event types.
         if etype in ("user", "human"):
-            role = "user"
+            role_type = "user"
         elif etype == "assistant":
-            role = "assistant"
+            role_type = "assistant"
         else:
-            # Skip non-message events: file-history-snapshot, queue-operation,
-            # system, summary, etc.
             continue
 
         msg = event.get("message") or {}
         content_raw = msg.get("content")
         if content_raw is None:
-            # Some older formats put content at top level
             content_raw = event.get("content")
         if content_raw is None:
             continue
 
-        text = _extract_content(content_raw, include_thinking=include_thinking)
+        if role_type == "assistant":
+            new_msgs = _extract_assistant_messages(
+                content_raw, include_thinking, tool_id_to_name, truncate_tool_args
+            )
+        else:
+            new_msgs = _extract_user_messages(
+                content_raw, tool_id_to_name, truncate_tool_args
+            )
 
-        # For user messages that are tool results, the text can be very long
-        # and noisy.  Keep it but truncate extreme cases.
-        if not text:
-            logger.debug("Skipping empty %s message in %s", role, session_file.name)
-            continue
-
-        messages.append({"role": role, "content": text})
+        messages.extend(new_msgs)
 
     return messages
 
@@ -483,6 +566,7 @@ def import_claude_code_sessions(
     include_thinking: bool = False,
     overwrite: bool = False,
     include_agents: bool = False,
+    truncate_tool_args: Optional[int] = None,
 ) -> str:
     """Import Claude Code CLI session transcripts into Mage Lab format.
 
@@ -502,6 +586,9 @@ def import_claude_code_sessions(
     :param include_agents: If True, also import sub-agent session files
         (agent-*.jsonl).  These are excluded by default since they are
         side conversations spawned by the main session.
+    :param truncate_tool_args: When set to an integer N, tool call arguments
+        and tool results longer than N characters are trimmed with a
+        " … [truncated]" suffix. Default None preserves full fidelity.
     :return: Human-readable summary of the import result.
     """
     # Resolve input directory
@@ -579,6 +666,7 @@ def import_claude_code_sessions(
                 project_dir_name,
                 index_meta,
                 include_thinking=include_thinking,
+                truncate_tool_args=truncate_tool_args,
             )
 
             if len(messages) <= 1:
@@ -674,6 +762,7 @@ try:
             "include_thinking",
             "overwrite",
             "include_agents",
+            "truncate_tool_args",
         ],
     )(import_claude_code_sessions)
 except ImportError:
@@ -720,6 +809,17 @@ def _cli() -> None:
         default=False,
         help="Also import sub-agent session files (agent-*.jsonl).",
     )
+    parser.add_argument(
+        "--truncate-tool-args",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Trim tool call arguments and results to N characters, appending"
+            " ' … [truncated]'. Default: off (full fidelity). Useful when"
+            " storing sessions with very large file writes or command output."
+        ),
+    )
 
     args = parser.parse_args()
     result = import_claude_code_sessions(
@@ -728,6 +828,7 @@ def _cli() -> None:
         include_thinking=args.thinking,
         overwrite=args.overwrite,
         include_agents=args.include_agents,
+        truncate_tool_args=args.truncate_tool_args,
     )
     print(result)
 
