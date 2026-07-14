@@ -56,15 +56,25 @@ Mage's memory is the reference [`@modelcontextprotocol/server-memory`](https://g
 - **Idempotent.** Re-running with unchanged input produces an identical store.
 - **Atomic + backed up.** The store is copied to `<store-dir>/backups/` before each write, and the new store is written to a temp file and renamed into place, so a crash mid-write can't corrupt the graph.
 
+## Backends
+
+Two write targets, same thin-index mapping and same `origin: claude-code-cli` ownership:
+
+- **`jsonl`** (default) — the flat `memory.jsonl` used by the reference `@modelcontextprotocol/server-memory`. Zero dependencies; good for surfaces not (yet) on `mage-memory`.
+- **`mage-memory`** — the SQLite `graph.db` served by the [`mage-memory`](https://github.com/Sapient-Artifice/mage-memory) MCP server (SQLite + FTS5 + sensitivity tiers). Writes are tagged `sensitivity='ecosystem'`; the FTS index stays current via `graph.db`'s own triggers. Still stdlib-only (plain `sqlite3`) — the graph must already exist (created by `mage-memory`).
+
+Both do a namespaced full reconcile: the sync-owned subset is replaced each run; Mage-native entities/relations are never touched.
+
 ## Usage
 
 **CLI:**
 ```bash
-python sync_claude_code_memory.py [--projects-dir DIR] [--store PATH] \
-                                  [--only PROJECT ...] [--dry-run] [--no-backup]
+python sync_claude_code_memory.py [--backend jsonl|mage-memory] [--projects-dir DIR] \
+                                  [--store PATH] [--only PROJECT ...] [--dry-run] [--no-backup]
 ```
+- `--backend` — `jsonl` (default) or `mage-memory`.
 - `--projects-dir` — root of the CLI memory (default `~/.claude/projects`). Point at an rsync backup to avoid reading live data.
-- `--store` — the memory-server JSONL store (default `~/Mage/memory/memory.jsonl`).
+- `--store` — store path. Default `~/Mage/memory/memory.jsonl` (jsonl) or `~/.mage-memory/graph.db` (mage-memory).
 - `--only` — restrict to one or more project directory names.
 - `--dry-run` — report what would change without writing.
 

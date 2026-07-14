@@ -59,6 +59,7 @@ from typing import Any, Dict, List, Optional, Tuple
 ORIGIN_MARKER = "origin: claude-code-cli"
 DEFAULT_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 DEFAULT_STORE = Path.home() / "Mage" / "memory" / "memory.jsonl"
+DEFAULT_GRAPH_DB = Path.home() / ".mage-memory" / "graph.db"
 _LINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 _PROJECT_PREFIX = "-Users-" + (os.environ.get("USER") or "") + "-"
 
@@ -322,6 +323,104 @@ def _backup(store: Path) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# mage-memory backend — write into the SQLite knowledge graph (graph.db)
+# ---------------------------------------------------------------------------
+#
+# Reuses the same thin-index entities/relations as the JSONL backend, but
+# writes them into the mage-memory SQLite store via plain SQL (stdlib sqlite3,
+# so the tool stays dependency-free). The graph.db is created by mage-memory;
+# this only INSERT/DELETEs standard rows at the 'ecosystem' tier — the FTS5
+# index is kept current by graph.db's own triggers.
+
+# Owned entities are identified the same way as the JSONL backend: by the
+# origin-marker observation. Everything else in the graph is Mage-native and
+# is never touched.
+_OWNED_QUERY = "SELECT DISTINCT entity_name FROM observations WHERE content LIKE ?"
+
+
+def _backup_graph(store: Path) -> Optional[str]:
+    """Consistent SQLite snapshot via the online backup API."""
+    if not store.exists():
+        return None
+    import sqlite3
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    bdir = store.parent / "backups"
+    bdir.mkdir(parents=True, exist_ok=True)
+    dest = bdir / f"{store.stem}-{ts}{store.suffix}"
+    src = sqlite3.connect(str(store))
+    dst = sqlite3.connect(str(dest))
+    with dst:
+        src.backup(dst)
+    dst.close()
+    src.close()
+    return str(dest)
+
+
+def _sync_graph(
+    store: Path,
+    desired_entities: List[dict],
+    desired_relations: List[dict],
+    dry_run: bool,
+    no_backup: bool,
+) -> dict:
+    """Reconcile the sync-owned subset in the SQLite graph; leave native rows alone."""
+    import sqlite3
+
+    if not store.exists():
+        return {"error": f"graph db not found (run the mage-memory migration first): {store}"}
+
+    conn = sqlite3.connect(str(store))  # default isolation → atomic transaction on commit
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    try:
+        owned = [r[0] for r in conn.execute(_OWNED_QUERY, (ORIGIN_MARKER + "%",)).fetchall()]
+        total_entities = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        total_relations = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
+        stats = {
+            "prev_cli_entities": len(owned),
+            "native_entities": total_entities - len(owned),
+            "native_relations": total_relations,  # native relations are untouched
+            "cli_entities": len(desired_entities),
+            "cli_relations": len(desired_relations),
+        }
+        if dry_run:
+            stats["total_entities_after"] = stats["native_entities"] + len(desired_entities)
+            stats["would_write"] = True
+            return stats
+
+        backup = None if no_backup else _backup_graph(store)
+        # Replace the owned subset. Deleting owned entities cascades their
+        # observations and relations (FK ON DELETE CASCADE).
+        conn.executemany("DELETE FROM entities WHERE name = ?", [(n,) for n in owned])
+        for e in desired_entities:
+            conn.execute(
+                "INSERT OR IGNORE INTO entities (name, entity_type, sensitivity) "
+                "VALUES (?, ?, 'ecosystem')",
+                (e["name"], e["entityType"]),
+            )
+            for obs in e.get("observations", []):
+                conn.execute(
+                    "INSERT INTO observations (entity_name, content, sensitivity, created_by) "
+                    "VALUES (?, ?, 'ecosystem', 'claude-code-cli-sync')",
+                    (e["name"], obs),
+                )
+        for r in desired_relations:
+            conn.execute(
+                "INSERT OR IGNORE INTO relations "
+                "(from_entity, to_entity, relation_type, sensitivity) "
+                "VALUES (?, ?, ?, 'ecosystem')",
+                (r["from"], r["to"], r["relationType"]),
+            )
+        conn.commit()
+        stats["backup"] = backup
+        stats["total_entities_after"] = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        stats["written"] = True
+        return stats
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -331,22 +430,32 @@ def sync_claude_code_memory(
     only: Optional[List[str]] = None,
     dry_run: bool = False,
     no_backup: bool = False,
+    backend: str = "jsonl",
 ) -> dict:
-    """Mirror the CLI memory tree into Mage's knowledge-graph store."""
+    """Mirror the CLI memory tree into Mage's knowledge-graph store.
+
+    backend='jsonl' writes the flat memory.jsonl (the reference server-memory
+    format, for surfaces not yet on mage-memory). backend='mage-memory' writes
+    the SQLite graph.db served by the mage-memory MCP server. Either way the
+    tool only manages entities tagged origin: claude-code-cli.
+    """
+    if backend not in ("jsonl", "mage-memory"):
+        return {"error": f"unknown backend {backend!r}; use 'jsonl' or 'mage-memory'"}
+
     proj = Path(projects_dir).expanduser() if projects_dir else DEFAULT_PROJECTS_DIR
-    store_path = Path(store).expanduser() if store else DEFAULT_STORE
+    if store:
+        store_path = Path(store).expanduser()
+    else:
+        store_path = DEFAULT_STORE if backend == "jsonl" else DEFAULT_GRAPH_DB
 
     if not proj.is_dir():
         return {"error": f"projects_dir not found: {proj}"}
 
     desired_entities, desired_relations, warnings = build_desired_graph(proj, only)
-    store_entities, store_relations = _load_store(store_path)
-    out_entities, out_relations, stats = reconcile(
-        store_entities, store_relations, desired_entities, desired_relations
-    )
 
-    result = {
+    common = {
         "store": str(store_path),
+        "backend": backend,
         "projects_scanned": sorted({
             _project_label(p.name)
             for p in proj.glob("*") if (p / "memory").is_dir()
@@ -354,15 +463,25 @@ def sync_claude_code_memory(
         }),
         "warnings": warnings,
         "dry_run": dry_run,
+    }
+
+    if backend == "mage-memory":
+        return {**common, **_sync_graph(store_path, desired_entities, desired_relations, dry_run, no_backup)}
+
+    # --- jsonl backend ---
+    store_entities, store_relations = _load_store(store_path)
+    out_entities, out_relations, stats = reconcile(
+        store_entities, store_relations, desired_entities, desired_relations
+    )
+    result = {
+        **common,
         **stats,
         "total_entities_after": len(out_entities),
         "total_relations_after": len(out_relations),
     }
-
     if dry_run:
         result["would_write"] = True
         return result
-
     backup = None if no_backup else _backup(store_path)
     _write_store(store_path, out_entities, out_relations)
     result["backup"] = backup
@@ -388,7 +507,7 @@ try:
             "memory is left untouched. Idempotent; backs up the store first."
         ),
         required_params=[],
-        optional_params=["projects_dir", "store", "only", "dry_run", "no_backup"],
+        optional_params=["projects_dir", "store", "only", "dry_run", "no_backup", "backend"],
     )(sync_claude_code_memory)
 except ImportError:
     pass
@@ -406,8 +525,11 @@ def _cli() -> None:
     )
     parser.add_argument("--projects-dir", default=None,
                         help="Root of CLI project memory (default: ~/.claude/projects).")
+    parser.add_argument("--backend", choices=["jsonl", "mage-memory"], default="jsonl",
+                        help="Write target: 'jsonl' (memory.jsonl) or 'mage-memory' (SQLite graph.db).")
     parser.add_argument("--store", default=None,
-                        help="memory-server JSONL store (default: ~/Mage/memory/memory.jsonl).")
+                        help="Store path. Default: ~/Mage/memory/memory.jsonl (jsonl) "
+                             "or ~/.mage-memory/graph.db (mage-memory).")
     parser.add_argument("--only", nargs="*", default=None,
                         help="Restrict to these project directory names.")
     parser.add_argument("--dry-run", action="store_true", default=False,
@@ -421,6 +543,7 @@ def _cli() -> None:
         only=args.only,
         dry_run=args.dry_run,
         no_backup=args.no_backup,
+        backend=args.backend,
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     # Non-zero exit on a logical error so the scheduler records a failed run.

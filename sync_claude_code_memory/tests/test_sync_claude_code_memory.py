@@ -139,3 +139,96 @@ def test_quoted_description_with_colon(tmp_path):
     q = next(e for e in ents if e["name"] == "q")
     assert q["observations"][0] == "Note: colons: kept"
     assert q["entityType"] == "Reference"
+
+
+# ---------------------------------------------------------------------------
+# mage-memory (SQLite graph.db) backend
+# ---------------------------------------------------------------------------
+
+import sqlite3
+
+_MIN_SCHEMA = """
+CREATE TABLE entities (name TEXT PRIMARY KEY, entity_type TEXT NOT NULL,
+    sensitivity TEXT NOT NULL DEFAULT 'ecosystem');
+CREATE TABLE observations (id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_name TEXT NOT NULL REFERENCES entities(name) ON DELETE CASCADE,
+    content TEXT NOT NULL, sensitivity TEXT DEFAULT 'ecosystem', created_by TEXT);
+CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_entity TEXT NOT NULL REFERENCES entities(name) ON DELETE CASCADE,
+    to_entity TEXT NOT NULL REFERENCES entities(name) ON DELETE CASCADE,
+    relation_type TEXT NOT NULL, sensitivity TEXT DEFAULT 'ecosystem',
+    UNIQUE(from_entity, to_entity, relation_type));
+"""
+
+
+def _graph(tmp_path):
+    """A graph.db with the minimal mage-memory schema + a native entity."""
+    p = tmp_path / "graph.db"
+    c = sqlite3.connect(str(p))
+    c.executescript(_MIN_SCHEMA)
+    c.execute("INSERT INTO entities (name, entity_type) VALUES ('Native', 'Bug')")
+    c.execute("INSERT INTO observations (entity_name, content) VALUES ('Native', 'native fact')")
+    c.commit(); c.close()
+    return p
+
+
+def _projects(tmp_path):
+    proj = tmp_path / "projects"
+    mem = proj / "-Users-kmertens-Sapient-Artifice-demo" / "memory"
+    _write_memory(mem, "foo-rule", "feedback", "Always foo. See [[bar-note]].")
+    _write_memory(mem, "bar-note", "project", "Bar context.")
+    return proj
+
+
+class TestMageMemoryBackend:
+    def test_missing_db_errors(self, tmp_path):
+        r = s.sync_claude_code_memory(projects_dir=str(_projects(tmp_path)),
+                                      store=str(tmp_path / "nope.db"), backend="mage-memory")
+        assert "graph db not found" in r.get("error", "")
+
+    def test_writes_cli_entities_preserves_native(self, tmp_path):
+        proj, db = _projects(tmp_path), _graph(tmp_path)
+        r = s.sync_claude_code_memory(projects_dir=str(proj), store=str(db), backend="mage-memory")
+        assert r["cli_entities"] == 2 and r["cli_relations"] == 1
+        c = sqlite3.connect(str(db))
+        names = {row[0] for row in c.execute("SELECT name FROM entities")}
+        assert {"foo-rule", "bar-note", "Native"} <= names
+        # native untouched
+        assert c.execute("SELECT content FROM observations WHERE entity_name='Native'").fetchone()[0] == "native fact"
+        # origin marker present on cli entities
+        marked = c.execute("SELECT COUNT(DISTINCT entity_name) FROM observations WHERE content LIKE 'origin: claude-code-cli%'").fetchone()[0]
+        assert marked == 2
+        # link -> relation
+        assert c.execute("SELECT COUNT(*) FROM relations WHERE from_entity='foo-rule' AND to_entity='bar-note'").fetchone()[0] == 1
+        c.close()
+
+    def test_idempotent(self, tmp_path):
+        proj, db = _projects(tmp_path), _graph(tmp_path)
+        s.sync_claude_code_memory(projects_dir=str(proj), store=str(db), backend="mage-memory", no_backup=True)
+        s.sync_claude_code_memory(projects_dir=str(proj), store=str(db), backend="mage-memory", no_backup=True)
+        c = sqlite3.connect(str(db))
+        # no duplication: 3 entities, 2 obs per cli entity (desc + provenance), native intact
+        assert c.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 3
+        assert c.execute("SELECT COUNT(*) FROM observations WHERE entity_name='foo-rule'").fetchone()[0] == 2
+        assert c.execute("SELECT COUNT(*) FROM relations").fetchone()[0] == 1
+        c.close()
+
+    def test_prunes_removed_memory(self, tmp_path):
+        proj, db = _projects(tmp_path), _graph(tmp_path)
+        s.sync_claude_code_memory(projects_dir=str(proj), store=str(db), backend="mage-memory", no_backup=True)
+        (proj / "-Users-kmertens-Sapient-Artifice-demo" / "memory" / "bar-note.md").unlink()
+        s.sync_claude_code_memory(projects_dir=str(proj), store=str(db), backend="mage-memory", no_backup=True)
+        c = sqlite3.connect(str(db))
+        names = {row[0] for row in c.execute("SELECT name FROM entities")}
+        assert "bar-note" not in names
+        assert {"foo-rule", "Native"} <= names
+        assert c.execute("SELECT COUNT(*) FROM relations WHERE to_entity='bar-note'").fetchone()[0] == 0
+        c.close()
+
+    def test_dry_run_writes_nothing(self, tmp_path):
+        proj, db = _projects(tmp_path), _graph(tmp_path)
+        r = s.sync_claude_code_memory(projects_dir=str(proj), store=str(db), backend="mage-memory", dry_run=True)
+        assert r.get("would_write") and r["cli_entities"] == 2
+        c = sqlite3.connect(str(db))
+        assert c.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 1  # only Native
+        c.close()
