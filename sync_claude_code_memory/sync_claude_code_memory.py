@@ -151,15 +151,33 @@ def _entity_type(mtype: str) -> str:
     return mtype.strip().title() if mtype.strip() else "Memory"
 
 
-def _observations(rec: Dict[str, Any], project_label: str, rel_path: str) -> List[str]:
+_DESC_FALLBACK_MAX = 280
+
+
+def _observations(
+    rec: Dict[str, Any], project_label: str, rel_path: str, source_path: str
+) -> List[str]:
+    """Thin-index observations: the memory's one-line summary + a pointer.
+
+    We deliberately do NOT copy the full body into the graph — dense memories
+    would bloat read_graph and overflow the assistant's context. The body stays
+    in the source file, retrievable on demand via the pointer below.
+    """
     obs: List[str] = []
-    if rec["description"]:
-        obs.append(rec["description"])
-    for para in re.split(r"\n\s*\n", rec["body"].strip()):
-        p = para.strip()
-        if p:
-            obs.append(p)
-    obs.append(f"{ORIGIN_MARKER} | project: {project_label} | file: {rel_path}")
+    desc = rec["description"].strip()
+    if desc:
+        obs.append(desc)
+    else:
+        # No description — fall back to the first body line so the node isn't empty.
+        for line in rec["body"].splitlines():
+            line = line.strip()
+            if line:
+                obs.append(line[:_DESC_FALLBACK_MAX])
+                break
+    obs.append(
+        f"{ORIGIN_MARKER} | project: {project_label} | file: {rel_path} | "
+        f"full text: {source_path}"
+    )
     return obs
 
 
@@ -205,7 +223,7 @@ def build_desired_graph(
             "type": "entity",
             "name": name,
             "entityType": _entity_type(rec["mtype"]),
-            "observations": _observations(rec, label, f.name),
+            "observations": _observations(rec, label, f.name, str(f)),
         })
 
     known = {e["name"] for e in entities}

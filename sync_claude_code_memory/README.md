@@ -42,9 +42,11 @@ Mage's memory is the reference [`@modelcontextprotocol/server-memory`](https://g
 | CLI memory | → | Knowledge graph |
 |---|---|---|
 | a `*.md` file | → | an **entity** (`name`, `entityType` = title-cased `metadata.type`) |
-| `description` + body paragraphs | → | the entity's **observations** |
+| `description` (the one-line summary) | → | the entity's content observation |
 | each `[[link]]` | → | a **`relates_to` relation** (only when the target is also in the set — no dangling edges) |
-| — | → | a provenance observation: `origin: claude-code-cli \| project: … \| file: …` |
+| — | → | a provenance observation: `origin: claude-code-cli \| project: … \| file: … \| full text: <path>` |
+
+**Thin-index by design.** The entity carries the memory's *summary* and a **pointer to the source file** — not the full body. Dumping dense memory bodies as observations makes `read_graph` enormous and overflows the assistant's context (some research memories are 10–25 KB each). The graph stays a small, queryable map; the full prose lives in the source files and is retrievable on demand via the pointer.
 
 `MEMORY.md` index files are skipped.
 

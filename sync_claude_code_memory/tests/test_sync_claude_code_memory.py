@@ -107,6 +107,25 @@ def test_mage_type_not_touched_when_dry_run(sandbox):
     assert store.read_text() == before  # dry run writes nothing
 
 
+def test_thin_index_no_body_dump(tmp_path):
+    """Entities carry the summary + a file pointer, NOT the full body."""
+    proj = tmp_path / "projects"
+    store = tmp_path / "m.jsonl"
+    mem = proj / "-Users-kmertens-x" / "memory"
+    mem.mkdir(parents=True)
+    (mem / "big.md").write_text(
+        "---\nname: big\ndescription: one-line summary\nmetadata:\n  type: project\n---\n\n"
+        "SECRET_BODY_MARKER paragraph one.\n\nSECRET_BODY_MARKER paragraph two.\n",
+        encoding="utf-8")
+    s.sync_claude_code_memory(projects_dir=str(proj), store=str(store))
+    ents, _ = _load(store)
+    big = next(e for e in ents if e["name"] == "big")
+    assert big["observations"][0] == "one-line summary"
+    assert not any("SECRET_BODY_MARKER" in o for o in big["observations"])
+    assert any("full text:" in o and "big.md" in o for o in big["observations"])
+    assert len(big["observations"]) == 2
+
+
 def test_quoted_description_with_colon(tmp_path):
     proj = tmp_path / "projects"
     store = tmp_path / "m.jsonl"
